@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- p5.js -->
+  <script 
+    id="p5scripttag" 
+    src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"
+    crossorigin="anonymous">
+  </script>
+
+  <!-- highlight.js -->
+  <link 
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" 
+  />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+
+  <script>
+    const bgCol = "#F2F0E7";
+const accentCol = "#0000FF";
+
+hljs.initHighlightingOnLoad();
+
+const updateTargetDims = () => {
+  return [windowWidth * 0.6, windowHeight * 1]; 
+};
+
+const setNodeInfo = (index) => {
+
+  // ===== Basic info =====
+  const infoElm = document.getElementById("node-info");
+  const tqElm = document.getElementById("task_query");
+
+  const analysisElm = document.getElementById("analysis");
+  const coreElm = document.getElementById("core_results");
+  const codeElm = document.getElementById("code");
+  const filesElm = document.getElementById("files");
+  
+  const decisionElm = document.getElementById("decision");
+  const scoreElm = document.getElementById("score");
+  const summaryElm = document.getElementById("summary");
+  const opinionElm = document.getElementById("opinion");
+
+  if (infoElm) {
+    infoElm.innerHTML = `
+      <b>subtask_id:</b> ${treeStructData.subtask_id[index]}<br>
+      <b>node_index:</b> ${treeStructData.node_index[index]}<br>
+      <b>node_type:</b> ${treeStructData.node_type[index]}<br>
+      <b>status:</b> ${treeStructData.status[index]}<br>
+      <b>average_reward:</b> ${treeStructData.average_reward[index]}<br>
+    `;
+  }
+
+  if (tqElm) tqElm.textContent = treeStructData.task_query[index];
+
+  if (analysisElm) analysisElm.textContent = treeStructData.analysis[index];
+
+  
+  if (coreElm) coreElm.textContent = treeStructData.core_results[index];
+
+  if (codeElm) {
+    codeElm.innerHTML = hljs.highlight(
+      treeStructData.code[index],
+      { language: "python" }
+    ).value;
+  }
+
+  if (filesElm) filesElm.textContent = treeStructData.files[index];
+
+  // ===== Critic response =====
+  if (decisionElm) decisionElm.textContent = treeStructData.decision[index];
+
+
+  if (scoreElm) scoreElm.textContent = treeStructData.score[index];
+
+  if (summaryElm) summaryElm.textContent = treeStructData.summary[index];
+
+  if (opinionElm) opinionElm.textContent = treeStructData.opinion[index];
+};
+
+ 
+
+windowResized = () => {
+  resizeCanvas(...updateTargetDims());
+  awaitingPostResizeOps = true;
+};
+
+let scaleFactor = 0.57;
+let manualSelection = false;
+let currentElemInd = 0;
+
+let treeStructData = {"subtask_id": ["0", "1", "1", "1", "1"], "node_index": ["0", "1", "2", "3", "4"], "node_type": ["virtual", "draft", "draft", "revise", "revise"], "status": ["completed", "completed", "completed", "completed", "completed"], "average_reward": ["0.752", "0.9466666666666667", "0.92", "0.96", "0.95"], "task_query": ["Virtual Root", "Next subtask: Compute the free-fall time t_f and impact speed v_f for a ball dropped from rest from h0 = 5 m under uniform gravity (no air resistance). Assumptions and method: 1D vertical motion with upward positive; a = \u2212g with g = 9.81 m/s^2 downward; equations: y(t) = h0 \u2212 (1/2) g t^2, v(t) = \u2212g t (from rest). Solve y(t_f)=0 \u2192 t_f = sqrt(2 h0 / g). Impact speed from v_f = g t_f (magnitude) or energy v_f = sqrt(2 g h0). Numerical substitution: t_f = sqrt(10/9.81) \u2248 1.01 s; v_f \u2248 sqrt(98.1) \u2248 9.90 m/s downward. Background knowledge (via KB search): - Constant-acceleration kinematics: y(t) = y0 + v0 t + (1/2) a t^2; v(t) = v0 + a t; vertical free fall with up positive implies a = \u2212g. [KB search: Kinematics equations for constant acceleration \u2026] - Energy relation for uniform acceleration/free fall: v^2 = v0^2 + 2 a (y \u2212 y0); for drop from rest gives v = sqrt(2 g h). [KB search: Free fall without air resistance \u2026] - Standard gravitational acceleration near Earth: g \u2248 9.81 m/s^2 downward. [KB search: Standard gravitational acceleration \u2026] - Derived fall time for drop from rest: t = sqrt(2 h / g) from y(t) = h \u2212 (1/2) g t^2. [KB search: Time to fall from height h \u2026] Deliverable: brief text stating t_f and v_f with units, formulas used, assumptions, and values rounded to 2\u20133 significant figures.", "Next subtask: Compute the free-fall time t_f and impact speed v_f for a ball dropped from rest from h0 = 5 m under uniform gravity (no air resistance). Assumptions and method: 1D vertical motion with upward positive; a = \u2212g with g = 9.81 m/s^2 downward; equations: y(t) = h0 \u2212 (1/2) g t^2, v(t) = \u2212g t (from rest). Solve y(t_f)=0 \u2192 t_f = sqrt(2 h0 / g). Impact speed from v_f = g t_f (magnitude) or energy v_f = sqrt(2 g h0). Numerical substitution: t_f = sqrt(10/9.81) \u2248 1.01 s; v_f \u2248 sqrt(98.1) \u2248 9.90 m/s downward. Background knowledge (via KB search): - Constant-acceleration kinematics: y(t) = y0 + v0 t + (1/2) a t^2; v(t) = v0 + a t; vertical free fall with up positive implies a = \u2212g. [KB search: Kinematics equations for constant acceleration \u2026] - Energy relation for uniform acceleration/free fall: v^2 = v0^2 + 2 a (y \u2212 y0); for drop from rest gives v = sqrt(2 g h). [KB search: Free fall without air resistance \u2026] - Standard gravitational acceleration near Earth: g \u2248 9.81 m/s^2 downward. [KB search: Standard gravitational acceleration \u2026] - Derived fall time for drop from rest: t = sqrt(2 h / g) from y(t) = h \u2212 (1/2) g t^2. [KB search: Time to fall from height h \u2026] Deliverable: brief text stating t_f and v_f with units, formulas used, assumptions, and values rounded to 2\u20133 significant figures.", "Next subtask (ID 2): Consistency-check and finalize the brief text deliverable for free fall from h0 = 5 m. Objective: recompute t_f = sqrt(2 h0 / g) and v_f = sqrt(2 g h0), verify numerical consistency via v_f \u2248 g t_f, then prepare a concise statement including formulas used, assumptions (dropped from rest, uniform g = 9.81 m/s^2 downward, no air resistance), sign convention (upward positive \u2192 a = \u2212g), units, and rounding to 2\u20133 significant figures (target values: t_f \u2248 1.01 s, v_f \u2248 9.90 m/s downward). Steps: (1) compute t_f and v_f; (2) assert |v_f \u2212 g t_f| < 1e\u22124 m/s to ensure internal consistency; (3) round consistently and report with units and assumptions. Acceptance criteria: equations cited, assumptions explicit, units correct, self-consistency check passed, values rounded to 2\u20133 s.f. Background knowledge (from KB searches): constant-acceleration kinematics y(t) = y0 + v0 t + (1/2) a t^2 and v(t) = v0 + a t [KB]; free-fall time from rest t = \u221a(2 h / g) with derivation from y(t_f) = 0 [KB]; kinematic/energy relation v^2 = v0^2 + 2 a (y \u2212 y0) \u2192 for drop from rest v = \u221a(2 g h) [KB]; standard gravitational acceleration near Earth g \u2248 9.81 m/s^2 downward [KB]; sign convention for vertical motion: upward positive implies a = \u2212g [KB]; significant-figures guidance: report results to 2\u20133 s.f. consistent with input precision [KB].", "Next subtask (ID 2): Consistency-check and finalize the brief text deliverable for free fall from h0 = 5 m. Objective: recompute t_f = sqrt(2 h0 / g) and v_f = sqrt(2 g h0), verify numerical consistency via v_f \u2248 g t_f, then prepare a concise statement including formulas used, assumptions (dropped from rest, uniform g = 9.81 m/s^2 downward, no air resistance), sign convention (upward positive \u2192 a = \u2212g), units, and rounding to 2\u20133 significant figures (target values: t_f \u2248 1.01 s, v_f \u2248 9.90 m/s downward). Steps: (1) compute t_f and v_f; (2) assert |v_f \u2212 g t_f| < 1e\u22124 m/s to ensure internal consistency; (3) round consistently and report with units and assumptions. Acceptance criteria: equations cited, assumptions explicit, units correct, self-consistency check passed, values rounded to 2\u20133 s.f. Background knowledge (from KB searches): constant-acceleration kinematics y(t) = y0 + v0 t + (1/2) a t^2 and v(t) = v0 + a t [KB]; free-fall time from rest t = \u221a(2 h / g) with derivation from y(t_f) = 0 [KB]; kinematic/energy relation v^2 = v0^2 + 2 a (y \u2212 y0) \u2192 for drop from rest v = \u221a(2 g h) [KB]; standard gravitational acceleration near Earth g \u2248 9.81 m/s^2 downward [KB]; sign convention for vertical motion: upward positive implies a = \u2212g [KB]; significant-figures guidance: report results to 2\u20133 s.f. consistent with input precision [KB]."], "edges": [[0, 1], [0, 2], [1, 3], [1, 4]], "layout": [[0.6666666666666666, 0.0], [0.3333333333333333, 0.5], [1.0, 0.5], [0.0, 1.0], [0.6666666666666666, 1.0]], "code": ["", "import math, os, csv\n\n# Parameters\nh0 = 5.0        # meters\ng = 9.81        # m/s^2\n\n# Computations\nt_f = math.sqrt(2*h0/g)          # s\nv_f = math.sqrt(2*g*h0)          # m/s (magnitude)\n\n# Save results\noutdir = \"outputs/test/depth1_node1\"\nos.makedirs(outdir, exist_ok=True)\ncsv_path = os.path.join(outdir, \"free_fall_results.csv\")\nwith open(csv_path, \"w\", newline=\"\") as f:\n    w = csv.writer(f)\n    w.writerow([\"h0_m\", \"g_m_per_s2\", \"t_f_s\", \"v_f_m_per_s\"])\n    w.writerow([h0, g, t_f, v_f])\n\nprint(f\"t_f = {t_f:.9f} s\")\nprint(f\"v_f = {v_f:.9f} m/s downward\")\nprint(csv_path)", "import os, json, csv\nh0 = 5.0  # m\ng = 9.81  # m/s^2\nimport math\nt_f = math.sqrt(2*h0/g)\nv_f = math.sqrt(2*g*h0)  # magnitude (downward)\n# Prepare output directory and files\noutdir = 'outputs/test/depth1_node2'\nos.makedirs(outdir, exist_ok=True)\ncsv_path = os.path.join(outdir, 'free_fall_results.csv')\nwith open(csv_path, 'w', newline='') as f:\n    w = csv.writer(f)\n    w.writerow(['h0_m','g_m_per_s2','t_f_s','v_f_m_per_s','direction'])\n    w.writerow([h0, g, t_f, v_f, 'downward'])\n# Also dump JSON for convenience\njson_path = os.path.join(outdir, 'free_fall_results.json')\nwith open(json_path, 'w') as f:\n    json.dump({'h0_m':h0,'g_m_per_s2':g,'t_f_s':t_f,'v_f_m_per_s':v_f,'direction':'downward'}, f, indent=2)\nprint(f\"t_f = {t_f:.8f} s\")\nprint(f\"v_f = {v_f:.8f} m/s (downward)\")\nprint('CSV:', csv_path)\nprint('JSON:', json_path)", "import math, os, csv\n\n# Parameters\nh0 = 5.0        # meters\ng = 9.81        # m/s^2\n\n# Output directory (must exist/be created)\noutdir = \"outputs/test/depth2_node3\"\nos.makedirs(outdir, exist_ok=True)\n\n# Computations\nt_f = math.sqrt(2*h0/g)          # s\nv_f = math.sqrt(2*g*h0)          # m/s (magnitude)\n\n# Self-consistency check: v_f \\u2248 g t_f\ncheck = abs(v_f - g*t_f)\nassert check < 1e-4, f\"Consistency check failed: |v_f - g t_f| = {check}\"\n\n# Round to 3 significant figures for reporting\n# Use formatted strings for preserving trailing zeros\ndef fmt_sf(x, sig=3):\n    return f\"{x:.{sig}g}\"\n\nt_f_str = fmt_sf(t_f, 3)  # expected ~ 1.01\nv_f_str = fmt_sf(v_f, 3)  # expected ~ 9.90\n\n# Save CSV with both full precision and rounded values\ncsv_path = os.path.join(outdir, \"free_fall_results.csv\")\nwith open(csv_path, \"w\", newline=\"\") as f:\n    w = csv.writer(f)\n    w.writerow([\"h0_m\", \"g_m_per_s2\", \"t_f_s\", \"v_f_m_per_s\", \"|v_f - g t_f|_m_per_s\", \"t_f_s_3sf\", \"v_f_m_per_s_3sf\"])\n    w.writerow([h0, g, t_f, v_f, check, t_f_str, v_f_str])\n\n# Prepare concise brief statement\nbrief = []\nbrief.append(\"Free fall from h0 = 5.0 m (dropped from rest).\")\nbrief.append(\"Equations: t_f = sqrt(2 h0 / g); v_f = sqrt(2 g h0). Verified v_f \\u2248 g t_f.\")\nbrief.append(\"Assumptions: uniform gravitational field g = 9.81 m/s^2 downward; no air resistance; initial velocity zero; 1D vertical motion.\")\nbrief.append(\"Sign convention: upward is positive, so acceleration a = -g.\")\nbrief.append(f\"Numerical results (3 s.f.): t_f = {t_f_str} s; v_f = {v_f_str} m/s downward.\")\nbrief.append(\"Internal consistency check: |v_f - g t_f| < 1e-4 m/s passed.\")\nbrief_text = \"\\n\".join(brief) + \"\\n\"\n\nbrief_path = os.path.join(outdir, \"free_fall_brief.txt\")\nwith open(brief_path, \"w\") as f:\n    f.write(brief_text)\n\nprint(brief_text)\nprint(csv_path)\nprint(brief_path)", "import math, os, csv\n\n# Parameters\nh0 = 5.0        # meters\ng = 9.81        # m/s^2 (downward)\n\n# Computations\nt_f = math.sqrt(2*h0/g)          # s\nv_f_mag = math.sqrt(2*g*h0)      # m/s (magnitude)\nv_f_signed = -v_f_mag            # m/s (upward positive)\n\n# Consistency check: |v_f| \u2248 g t_f\nresidual = abs(v_f_mag - g*t_f)\nassert residual < 1e-4, f\"Consistency check failed: |v| - g t = {residual} m/s\"\n\n# Output directory\noutdir = \"outputs/test/depth2_node4\"\nos.makedirs(outdir, exist_ok=True)\n\n# Save precise results to CSV\ncsv_path = os.path.join(outdir, \"free_fall_results.csv\")\nwith open(csv_path, \"w\", newline=\"\") as f:\n    w = csv.writer(f)\n    w.writerow([\"h0_m\", \"g_m_per_s2\", \"t_f_s\", \"v_f_mag_m_per_s\", \"v_f_signed_m_per_s\", \"residual_m_per_s\"])\n    w.writerow([h0, g, t_f, v_f_mag, v_f_signed, residual])\n\n# Rounded values for reporting\nt_f_rep = f\"{t_f:.2f}\"\nv_f_rep = f\"{abs(v_f_signed):.2f}\"\n\n# Human-readable summary\nsummary_path = os.path.join(outdir, \"summary.txt\")\nwith open(summary_path, \"w\") as f:\n    f.write(\"Assumptions: dropped from rest; uniform gravitational field g = 9.81 m/s^2 downward; no air resistance.\\n\")\n    f.write(\"Sign convention: upward is positive, so a = -g.\\n\")\n    f.write(\"Formulas used: t_f = sqrt(2 h0 / g); v_f = -sqrt(2 g h0); consistency check |v_f| \u2248 g t_f.\\n\")\n    f.write(f\"Numerical results: t_f = {t_f_rep} s; v_f = {v_f_rep} m/s downward. Residual |v|-g t = {residual:.3e} m/s (pass).\\n\")\n\nprint(csv_path)\nprint(summary_path)\nprint(f\"t_f = {t_f:.9f} s, v_f = {v_f_signed:.9f} m/s, residual = {residual:.3e} m/s\")"], "core_results": ["", "t_f_s: 1.0099504938\n\nv_f_m_per_s: 9.9045444115\n", "t_f_s: 1.00995049\n\nv_f_m_per_s: 9.90454441\n\ndirection: downward\n", "t_f_s: 1.01\n\nv_f_m_per_s: 9.9\n", "t_f_s_precise: 1.0096375568\n\nv_f_m_per_s_precise: 9.904544432\n\nt_f_s_reported: 1.01\n\nv_f_m_per_s_reported_magnitude: 9.9\n\nv_f_direction: downward\n\nconsistency_residual_m_per_s: 2e-08\n\nconsistency_check_passed: True\n"], "analysis": ["", "Assumptions: 1D vertical free fall, no air resistance, g = 9.81 m/s^2 downward, initial rest at height h0 = 5 m, upward positive. Model: y(t) = h0 - (1/2) g t^2, v(t) = -g t. Solve y(t_f)=0 -> t_f = sqrt(2 h0 / g). Impact speed magnitude v_f = sqrt(2 g h0). Numerical values: t_f \u2248 1.01 s; v_f \u2248 9.90 m/s downward.", "Assumptions: 1D vertical free fall, no air resistance, upward positive, a = -g with g = 9.81 m/s^2. From y(t) = h0 - (1/2) g t^2 with y(0)=h0=5 m and v(0)=0, solve y(t_f)=0 -> t_f = sqrt(2 h0 / g). Impact speed magnitude v_f = g t_f = sqrt(2 g h0). Numerical results: t_f \u2248 1.01 s, v_f \u2248 9.90 m/s downward.", "Recomputed free-fall from h0 = 5.0 m under uniform gravity g = 9.81 m/s^2, no air drag, dropped from rest. Used constant-acceleration kinematics: t_f = sqrt(2 h0 / g) and v_f = sqrt(2 g h0); sign convention upward positive \u2192 a = \u2212g. Numerical values: t_f \u2248 1.00964 s, v_f \u2248 9.90454 m/s. Verified internal consistency via |v_f \u2212 g t_f| = 4.1e-06 m/s < 1e-4 m/s. Rounded to 3 significant figures: t_f = 1.01 s; v_f = 9.90 m/s downward.", "Model: 1D free fall from rest with uniform gravity g = 9.81 m/s^2 downward, no air resistance. Sign convention: upward positive => a = -g. Kinematics/energy give t_f = sqrt(2 h0 / g) and v_f = -sqrt(2 g h0). Computed t_f and v_f; verified internal consistency via |v_f| \u2248 g t_f with residual < 1e-4 m/s. Rounded to 2\u20133 significant figures consistent with inputs."], "files": ["", "- outputs/test/depth1_node1/free_fall_results.csv\n", "- outputs/test/depth1_node2/free_fall_results.csv\n\n- outputs/test/depth1_node2/free_fall_results.json\n", "- outputs/test/depth2_node3/free_fall_results.csv\n\n- outputs/test/depth2_node3/free_fall_brief.txt\n", "- outputs/test/depth2_node4/free_fall_results.csv\n\n- outputs/test/depth2_node4/summary.txt\n"], "decision": ["complete", "to_revise", "to_improve", "complete", "to_improve"], "score": ["0", "0.93", "0.92", "0.96", "0.95"], "summary": ["", "The formulation and code for free-fall are correct and produce physically reasonable numbers for a 5 m drop. However, the reported t_f in the core result is inconsistent with both the code and the identity v_f = g t_f, indicating a transcription or rounding error. Revise by reading the CSV output as the authoritative values and ensuring self-consistency between t_f and v_f. Next, add a quick assertion check and, if desired, extend with uncertainty or air-drag variants in later nodes.", "The solution uses the correct free-fall model and closed-form formulas. The computed impact speed aligns with g = 9.81 m/s^2, but the reported impact time is slightly inconsistent with both the formula and v_f/g. Likely a minor numerical/copy error. Next, ensure the saved/printed t_f matches sqrt(2 h0 / g) and passes v_f \u2248 g t_f, and keep the reporting of magnitude vs. signed velocity consistent.", "Free-fall time and impact speed from 5.0 m under uniform gravity with no air drag are computed via standard constant-acceleration kinematics, yielding t_f \u2248 1.00964 s and |v_f| \u2248 9.90454 m/s. The method and equations are sound, and the code is clear, with a self-consistency check that should be near machine precision. Minor issues: the reported |v_f \u2212 g t_f| \u2248 4.1e-06 is larger than expected for identical inputs (likely just a narrative mismatch), and the 3-sig-fig formatter does not preserve trailing zeros. If needed, improve formatting and optionally record signed velocity in outputs.", "The node correctly solves free fall from 5.0 m with g = 9.81 m/s^2, yielding t \u2248 1.00964 s and v \u2248 9.90 m/s downward. Equations and numerical checks are sound; the tiny residual is expected floating-point error. Improve by making rounding/significant-figure choices consistent across all reported outputs and adding a secondary kinematic check (s = 0.5 g t^2) for completeness. Next, ensure the written files are read back and validated against the reported core results."], "opinion": ["", "['Physics model and equations are correct: y(t)=h0 - (1/2)gt^2, v(t)=-gt, t_f=sqrt(2h0/g), v_f=sqrt(2gh0).', 'Numerical result inconsistency: provided t_f=1.0099504938 s does not satisfy v_f = g t_f with g=9.81 (g t_f \u2248 9.90 \u2260 9.904544).', 'Given code would yield t_f \u2248 sqrt(10/9.81) \u2248 1.00964 s, not 1.00995 s; v_f \u2248 9.904544 m/s is correct.', 'File I/O and CSV writing look fine; ensure reported core results are read from the CSV (single source of truth).', 'Assumptions (no air drag, 1D, rest start) are clearly stated and reasonable for this subtask.']", "['Physics/model: 1D free fall with no air drag and upward-positive is correct; y(t) = h0 - (1/2) g t^2, t_f = sqrt(2 h0 / g), v_f = sqrt(2 g h0) are appropriate.', 'Numerics: v_f = 9.90454441 m/s matches sqrt(98.1), i.e., g = 9.81 m/s^2. However, the reported t_f = 1.00995049 s is inconsistent with both t_f = sqrt(10/9.81) and t_f = v_f/g, which give \u2248 1.00964 s.', 'Internal consistency check v_f \u2248 g t_f fails with the provided t_f; likely a minor copy/rounding error (1.00995049 \u2248 sqrt(1.02)).', 'Code methodology is sound and writes CSV/JSON; add an assertion that abs(v_f - g*t_f) is small to catch inconsistencies.', 'Clarify that v_f is a magnitude and supply sign if reporting vector velocity (e.g., v_f = -9.90 m/s downward).']", "['Numerical results are correct for free fall from 5.0 m with g = 9.81 m/s^2: t_f \u2248 1.00964 s, v_f \u2248 9.90454 m/s (downward).', 'Physics model (uniform gravity, no drag, dropped from rest) and kinematics equations t_f = sqrt(2h/g), v_f = sqrt(2gh) are appropriate and correctly applied.', 'Internal consistency check v_f \u2248 g t_f is valid; with identical g used, the difference should be at machine precision (~1e-15), not ~4e-06 as stated in the narrative.', 'Sign convention is clearly stated (upward positive, a = \u2212g); code uses velocity magnitude and clarifies direction in text.', \"Minor formatting issue: fmt with '.3g' does not preserve trailing zeros (e.g., likely outputs '9.9' not '9.90'); consider a sig-fig formatter that retains trailing zeros when desired.\"]", "['Physics model (1D free fall, no drag, uniform g, upward-positive) is appropriate; equations t = sqrt(2h/g) and v = -sqrt(2gh) are correct.', 'Numerical results are consistent: t \u2248 1.0096376 s, |v| \u2248 9.9045444 m/s; |v| \u2212 g t \u2248 2.0e-08 m/s (floating-point roundoff).', 'Code is clear and correct; includes a sensible internal consistency assert and writes reproducible outputs.', 'Minor reporting inconsistency: code prints v = 9.90 m/s (two decimals) while core_result reports 9.9 m/s; align significant figures across outputs.', 'Significant figures could be tightened to reflect inputs (h0 = 5.0 has 2 sig figs \u2192 report t \u2248 1.0 s, |v| \u2248 9.9 m/s), or clearly state the rounding policy.', 'Optional extra check: verify displacement s = 0.5 g t^2 equals h0 to within tolerance, and/or v^2 = 2gh to machine precision as an additional cross-check.']"]}
+
+let nodes = [];
+let edges = [];
+
+let offsetX = 0;
+let offsetY = 0;
+let dragging = false;
+let startDragX = 0;
+let startDragY = 0;
+
+setup = () => {
+  canvas = createCanvas(...updateTargetDims());
+  canvas.mousePressed(startDrag);
+  canvas.mouseReleased(stopDrag);
+};
+
+function startDrag() {
+  dragging = true;
+  startDragX = mouseX - offsetX;
+  startDragY = mouseY - offsetY;
+}
+
+function stopDrag() {
+  dragging = false;
+}
+
+function keyPressed() {
+  if (key === 'Z' || key === 'z') {
+    scaleFactor = min(scaleFactor * 1.1, 2.0); // 放大，最多 2 倍
+  } else if (key === 'X' || key === 'x') {
+    scaleFactor = max(scaleFactor * 0.9, 0.3); // 缩小，最小 0.3 倍
+  }
+}
+
+class Node {
+  x;
+  y;
+  size;
+  xT;
+  yT;
+  xB;
+  yB;
+  treeInd;
+  color;
+  relSize;
+  isStatic = false;
+  hasChildren = false;
+  isRootNode = true;
+  isStarred = false;
+  selected = false;
+  renderSize = 10;
+  edges = [];
+  bgCol;
+
+  constructor(x, y, relSize, treeInd) {
+    const minSize = 60; // 节点最小尺寸
+    const maxSize = 120; // 节点最大尺寸
+
+    const maxColor = 10;
+    const minColor = 125;
+
+    this.relSize = relSize;
+    this.treeInd = treeInd;
+    this.size = minSize + (maxSize - minSize) * relSize;
+    this.color = minColor + (maxColor - minColor) * relSize;
+    this.bgCol = Math.round(Math.max(this.color / 2, 0));
+
+    this.x = x;
+    this.y = y;
+    this.xT = x;
+    this.yT = y - this.size / 2;
+    this.xB = x;
+    this.yB = y + this.size / 2;
+
+    nodes.push(this);
+  }
+
+  child = (node) => {
+    let edge = new Edge(this, node);
+    this.edges.push(edge);
+    edges.push(edge);
+    this.hasChildren = true;
+    node.isRootNode = false;
+    return node;
+  };
+
+  render = () => {
+    const mouseXlocalCoords = (mouseX - width / 2 - offsetX) / scaleFactor;
+    const mouseYlocalCoords = (mouseY - height / 2 - offsetY) / scaleFactor;
+    const isMouseOver =
+      dist(mouseXlocalCoords, mouseYlocalCoords, this.x, this.y) <
+      this.renderSize / 1.5;
+    if (isMouseOver) {
+      this.renderSize = this.size * 1.1;
+      cursor(HAND);
+    }
+    // if (isMouseOver) cursor(HAND);
+    if (isMouseOver && mouseIsPressed) {
+      nodes.forEach((n) => (n.selected = false));
+      this.selected = true;
+      setNodeInfo(this.treeInd);
+      manualSelection = true;
+    }
+
+    this.renderSize = this.size;
+
+    if (this.selected) {
+      fill("#4F8CFF"); // 霓虹蓝
+    } else {
+      fill("#FF9F43"); // 高级橙
+    }
+
+
+    noStroke();
+    drawingContext.shadowBlur = this.selected ? 20 : 8;
+    drawingContext.shadowColor = this.selected ? "#4F8CFF" : "#FF9F43";
+    
+    square(
+      this.x - this.renderSize / 2,
+      this.y - this.renderSize / 2,
+      this.renderSize,
+      10,
+    );
+
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(this.renderSize * 0.8); // 更大文字比例
+    fill(255);
+    text(`${treeStructData.node_index[this.treeInd]}`, this.x, this.y - 1);
+  };
+}
+
+class Edge {
+  nodeT;
+  nodeB;
+  weight = 0;
+
+  constructor(nodeT, nodeB) {
+    this.nodeT = nodeT;
+    this.nodeB = nodeB;
+    this.weight = 3; // 固定边粗细
+  }
+
+  color = () => this.nodeB.color;
+
+  render = () => {
+    strokeWeight(this.weight);
+    stroke(0); // 黑色线条
+    noFill();
+    bezier(
+      this.nodeT.xB,
+      this.nodeT.yB,
+      this.nodeT.xB,
+      (this.nodeT.yB + this.nodeB.yT) / 2,
+      this.nodeB.xT,
+      (this.nodeT.yB + this.nodeB.yT) / 2,
+      this.nodeB.xT,
+      this.nodeB.yT,
+    );
+  };
+}
+
+draw = () => {
+
+  cursor(ARROW);
+  frameRate(5);
+
+  if (nodes.length == 0) {
+    const spacingHeight = height * 1.3;
+    const spacingWidth = width * 1.3;
+
+    treeStructData.layout.forEach((lay, index) => {
+      const rel = parseFloat(treeStructData.average_reward[index]) || 0;
+
+      new Node(
+        spacingWidth * lay[0] - spacingWidth / 2,
+        20 + spacingHeight * lay[1] - spacingHeight / 2,
+        1 - rel,
+        index,
+      );
+    });
+
+    treeStructData.edges.forEach((ind) => {
+      nodes[ind[0]].child(nodes[ind[1]]);
+    });
+    nodes.forEach((n) => {
+      if (n.isRootNode) n.isStatic = true;
+    });
+    nodes[0].selected = true;
+    setNodeInfo(0);
+  }
+
+  const staticNodes = nodes.filter((n) => n.isStatic);
+  if (staticNodes.length > 0) {
+    const largestNode = staticNodes.reduce((prev, current) =>
+      prev.relSize > current.relSize ? prev : current,
+    );
+    if (!manualSelection) {
+      if (!largestNode.selected) {
+        setNodeInfo(this.treeInd);
+      }
+      staticNodes.forEach((node) => {
+        node.selected = node === largestNode;
+      });
+    }
+  }
+  background(bgCol);
+
+  if (dragging) {
+    offsetX = mouseX - startDragX;
+    offsetY = mouseY - startDragY;
+  }
+
+  translate(width / 2 + offsetX, height / 2 + offsetY);
+  scale(scaleFactor);
+
+  edges.forEach((e) => e.render());
+  nodes.forEach((n) => n.render());
+
+};
+
+  </script>
+
+  <title>MCTS Reasoning Visualization</title>
+
+  <style>
+    body{
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      background: radial-gradient(circle at top, #111827 0%, #0B0F19 70%);
+      font-family: 'JetBrains Mono', monospace;
+      color: #E5E7EB;
+    }
+
+    canvas {
+      float: left;
+      width: 60vw;
+      height: 100vh;
+      background-color: #f2f0e7;
+    }
+
+    #text-container {
+      float: right;
+      width: 40vw;
+      height: 100vh;
+      background: linear-gradient(180deg,#111827,#0B1220);
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid #1F2937;
+      overflow: hidden;
+    }
+
+    /* ====== TAB BAR ====== */
+    #tab-bar {
+      display: flex;
+      background: #0F1624;
+      border-bottom: 1px solid #1F2937;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 12px;
+      color: #9CA3AF;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-weight: 700;
+      letter-spacing: 2px;
+      transition: 0.2s;
+    }
+    .tab-btn:hover {
+      color: #4F8CFF;
+    }
+    .tab-btn.active {
+      color: #4F8CFF;
+      border-bottom: 2px solid #4F8CFF;
+    }
+
+    /* ====== PANEL TITLE ====== */
+    .panel-title {
+      background: linear-gradient(135deg, #1F2937, #111827);
+      color: #4F8CFF;
+      padding: 10px 14px;
+      font-size: 13px;
+      letter-spacing: 3px;
+      font-weight: 700;
+      border-bottom: 1px solid #1F2937;
+      display: flex;
+      align-items: center;
+    }
+    .panel-title::before {
+      content: "▍";
+      color: #4F8CFF;
+      margin-right: 8px;
+      font-size: 20px;
+    }
+
+    
+
+    /* ====== PANEL CONTENT ====== */
+
+    .panel {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .info-block {
+      background: rgba(17,24,39,0.6);
+      border: 1px solid rgba(79,140,255,0.08);
+      box-shadow: 0 0 20px rgba(0,0,0,.3) inset;
+      padding: 10px;
+      color: #f2f0e7;
+      margin-bottom: 10px;
+
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .info-block:hover {
+      border: 1px solid rgba(79,140,255,0.4);
+      background: rgba(17,24,39,0.9);
+      transform: translateY(-2px);
+      transition: 0.25s;
+    }
+
+    /* ---- code 高亮区域也要保留换行和长行换行 ---- */
+    pre, code {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #111;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #444;
+    }
+
+  </style>
+</head>
+
+<body>
+
+<div id="text-container">
+
+  <!-- === TAB BAR === -->
+  <div id="tab-bar">
+    <button class="tab-btn active" data-target="panel-node">NODE INFO</button>
+    <button class="tab-btn" data-target="panel-theo">THEORETICIAN</button>
+    <button class="tab-btn" data-target="panel-crit">CRITIC</button>
+  </div>
+
+  <!-- ===========================
+       NODE INFO PANEL
+  ============================ -->
+  <div class="panel" id="panel-node" style="display:flex;">
+
+    <div class="panel-title">BASIC INFO</div>
+    <div class="info-block" id="node-info"></div>
+
+    <div class="panel-title">TASK QUERY</div>
+    <div class="info-block" id="task_query"></div>
+
+  </div>
+
+  <!-- ===========================
+       THEORETICIAN PANEL
+  ============================ -->
+  <div class="panel" id="panel-theo">
+
+    <div class="panel-title">ANALYSIS</div>
+    <div class="info-block" id="analysis"></div>
+
+    <div class="panel-title">CORE RESULT</div>
+    <div class="info-block" id="core_results"></div>
+
+    <div class="panel-title">CODE</div>
+    <div class="info-block"><pre><code id="code" class="language-python"></code></pre></div>
+
+    <div class="panel-title">FILES</div>
+    <div class="info-block" id="files"></div>
+
+  </div>
+
+  <!-- ===========================
+       CRITIC PANEL
+  ============================ -->
+  <div class="panel" id="panel-crit">
+
+    <div class="panel-title">DECISION</div>
+    <div class="info-block" id="decision"></div>
+
+    <div class="panel-title">SCORE</div>
+    <div class="info-block" id="score"></div>
+
+    <div class="panel-title">SUMMARY</div>
+    <div class="info-block" id="summary"></div>
+
+    <div class="panel-title">OPINION</div>
+    <div class="info-block" id="opinion"></div>
+
+  </div>
+
+</div>
+
+
+<!-- ===== TAB SWITCH SCRIPT ===== -->
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const buttons = document.querySelectorAll(".tab-btn");
+  const panels = document.querySelectorAll(".panel");
+
+  buttons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      buttons.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      let tgt = btn.dataset.target;
+      panels.forEach(p => p.style.display = "none");
+      document.getElementById(tgt).style.display = "flex";
+    });
+  });
+});
+</script>
+
+</body>
+</html>

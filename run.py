@@ -9,6 +9,7 @@ from typing import Any, Dict, Tuple
 from agent.MCTS.supervisor import SupervisorOrchestrator
 from agent.clarifier.clarifier import Clarifier
 from agent.librarian.librarian import run_pasax_for_kb
+from visualization.generate_html import generate_vis
 
 
 class EmptyLocalKB:
@@ -74,7 +75,7 @@ def clarify_query(query_path: str, clr_cfg) -> Dict[str, Any]:
         json.dump(structured_problem, f, ensure_ascii=False, indent=2)
     print(f"[CLR] Structured problem saved to: {task_dir / 'contract.json'}")
     
-    return structured_problem, task_dir
+    return structured_problem, task_dir, task_name
 
 
 def main(config_path: str = "config.yaml"):
@@ -83,10 +84,11 @@ def main(config_path: str = "config.yaml"):
     clarifier_cfg = cfg.get("clarifier", {})
     pipeline_cfg = cfg.get("pipeline", {})
     mcts_cfg = cfg.get("mcts", {})
+    vis_cfg = cfg.get("visualization",{})
 
     query_path = clarifier_cfg.get("query_file", "instructions/test.txt")
 
-    structured_problem, task_dir = clarify_query(query_path, clarifier_cfg)
+    structured_problem, task_dir, task_name = clarify_query(query_path, clarifier_cfg)
     task_name = get_task_name(structured_problem)
 
     kb_cfg = cfg.get("knowledge_base", {}) or {}
@@ -141,6 +143,11 @@ def main(config_path: str = "config.yaml"):
     )
 
     summary = supervisor.run()
+
+    if vis_cfg.get("enabled",False):
+        vis_path = task_dir / "visualization.html"
+        generate_vis(vis_path,supervisor.tree)
+        print("visualization succeed")
 
     summary_file = task_dir / "summary.json"
     with open(summary_file, "w", encoding="utf-8") as f:
