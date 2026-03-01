@@ -1,10 +1,20 @@
 # PhysMaster Configs
 
+# Basics
+pipeline:
+  query_file: "instructions/test.txt"
+  output_path: "outputs"
+  parallel_processes: 3
+  max_rounds: 3
+
+mcts:
+  draft_expansion: 2
+  revise_expansion: 1
+  exploration_constant: 1.414
+  active_beam_width: 3
+
 # Clarifier settings
 clarifier:
-  query_file: "instructions/test.txt"
-  schema_file_path: "agent/clarifier/schema"
-  output_path: "outputs"
   max_key_concpets: 5
 
 # LANDAU settings
@@ -13,23 +23,13 @@ landau:
   library: "LANDAU/library"
   
   workflow_enabled: true
-  skills_enabled: true
-  methodology: "LANDAU/methodology"
+  workflow: "LANDAU/workflow"
+  
+  techniques_enabled: true
+  techniques: "LANDAU/techniques"
 
   prior_enabled: true
   prior: "LANDAU/prior"
-
-pipeline:
-  parallel_processes: 3
-  max_nodes: 5
-  complete_score_threshold: 0.7
-
-mcts:
-  draft_expansion: 2
-  revise_expansion: 1
-  improve_expansion: 1
-  exploration_constant: 1.414
-  beam_width: 3
 
 visualization:
   enabled: true

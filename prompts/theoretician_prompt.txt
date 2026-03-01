@@ -1,9 +1,9 @@
 [USER REQUEST]
 
-Subtask and background knowledge:
+Subtask:
 {subtask}
 
-Short-term memory from the parent node:
+Path memory summaries:
 {memory}
 
 Node metadata:
@@ -12,6 +12,8 @@ Node metadata:
 Current node output path:
 {path}
 
-NOTICE:
-- Any files created by the code you provide (plots, data, CSVs, etc.) must be written into the directory above.
-- Return the result strictly following the JSON schema defined in the system instructions, without ant text outside the JSON object.
+Execution notice:
+- Treat the path above as the working output directory for this node.
+- Any generated artifacts (plots/data/tables/scripts) must be written to that directory.
+- Include concrete validation checks in your analysis whenever possible.
+- Return only the required JSON object (no extra text).

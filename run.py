@@ -5,9 +5,10 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-from agent.MCTS.supervisor import SupervisorOrchestrator
-from agent.clarifier.clarifier import Clarifier
-from visualization.generate_html import generate_vis
+from core.MCTS.supervisor import SupervisorOrchestrator
+from core.MCTS.summarizer import TrajectorySummarizer
+from core.clarifier.clarifier import Clarifier
+from core.visualization.generate_html import generate_vis
 
 
 def load_config(path: str = "config.yaml") -> Dict[str, Any]:
@@ -37,9 +38,9 @@ def clarify_query(query_path: str, clr_cfg, workflow_enabled: bool = True) -> Di
     print(f"[Clarifier] Clarifying query from: {path}")
 
     if workflow_enabled:
-        print(f"[LANDAU] Methodology-Workflow: enabled")
+        print(f"[LANDAU] Workflow: enabled")
     else:
-        print("[LANDAU] Methodology-Workflow: disabled")
+        print("[LANDAU] Workflow: disabled")
 
     clr = Clarifier(clr_cfg, workflow_enabled=workflow_enabled)
     structured_problem = clr.run(content)
@@ -54,7 +55,7 @@ def clarify_query(query_path: str, clr_cfg, workflow_enabled: bool = True) -> Di
 
     with open(task_dir / "contract.json", "w", encoding="utf-8") as f:
         json.dump(structured_problem, f, ensure_ascii=False, indent=2)
-    print(f"[CLR] Structured problem saved to: {task_dir / 'contract.json'}")
+    print(f"[Clarifier] Structured problem saved to: {task_dir / 'contract.json'}")
     
     return structured_problem, task_dir, task_name
 
@@ -62,68 +63,95 @@ def clarify_query(query_path: str, clr_cfg, workflow_enabled: bool = True) -> Di
 def main(config_path: str = "config.yaml"):
     cfg = load_config(config_path)
 
+    pipeline_cfg = cfg.get("pipeline", {})
     clarifier_cfg = cfg.get("clarifier", {})
-    query_path = clarifier_cfg.get("query_file", "instructions/test.txt")
+    query_path = pipeline_cfg.get("query_file", "instructions/test.txt")
+    output_root = pipeline_cfg.get("output_path", "outputs")
+    clarifier_cfg["output_path"] = output_root
 
     landau_cfg = cfg.get("landau", {})
     library_enabled = bool(landau_cfg.get("library_enabled", True))
     workflow_enabled = bool(landau_cfg.get("workflow_enabled", True))
-    skills_enabled = bool(landau_cfg.get("skills_enabled", True))
+    techniques_enabled = bool(landau_cfg.get("techniques_enabled", True))
     prior_enabled = bool(landau_cfg.get("prior_enabled", True))
 
-    pipeline_cfg = cfg.get("pipeline", {})
     mcts_cfg = cfg.get("mcts", {})
     vis_cfg = cfg.get("visualization",{})
+
+    project_root = Path(__file__).resolve().parent
+    library_root = (project_root / landau_cfg.get("library", "LANDAU/library")).resolve()
+    workflow_root = (
+        project_root
+        / landau_cfg.get("workflow", landau_cfg.get("methodology", "LANDAU/workflow"))
+    ).resolve()
+    techniques_root = (
+        project_root
+        / landau_cfg.get("techniques", "LANDAU/techniques")
+    ).resolve()
+    prior_root = (project_root / landau_cfg.get("prior", "LANDAU/prior")).resolve()
+
+    clarifier_cfg["workflow_dir"] = str(workflow_root)
 
     structured_problem, task_dir, task_name = clarify_query(
         query_path, clarifier_cfg, workflow_enabled=workflow_enabled
     )
 
-    project_root = Path(__file__).resolve().parent
-    library_root = (project_root / landau_cfg.get("library", "LANDAU/library")).resolve()
-    methodology_root = (project_root / landau_cfg.get("methodology", "LANDAU/global_methodology")).resolve()
-    prior_root = (project_root / landau_cfg.get("prior", "LANDAU/global_prior")).resolve()
-
     if library_enabled:
         print(f"[LANDAU] Library: {library_root}")
     else:
         print("[LANDAU] Library: disabled")
-    if skills_enabled:
-        print(f"[LANDAU] Methodology-Skills: {methodology_root}/skills")
+    if workflow_enabled:
+        print(f"[LANDAU] Workflow Dir: {workflow_root}")
     else:
-        print("[LANDAU] Methodology-Skills: disabled")
+        print("[LANDAU] Workflow Dir: disabled")
+    if techniques_enabled:
+        print(f"[LANDAU] Techniques Dir: {techniques_root}")
+    else:
+        print("[LANDAU] Techniques Dir: disabled")
     if prior_enabled:
         print(f"[LANDAU] Prior: {prior_root}")
     else:
         print("[LANDAU] Prior: disabled")
 
     processes = pipeline_cfg.get("parallel_processes", 2)
-    max_nodes = pipeline_cfg.get("max_nodes", 4)
+    max_rounds = pipeline_cfg.get("max_rounds", 8)
 
     supervisor = SupervisorOrchestrator(
         structured_problem=structured_problem,
         task_dir=task_dir,
         processes=processes,
-        max_nodes=max_nodes,
+        max_rounds=max_rounds,
         draft_expansion=mcts_cfg.get("draft_expansion", 2),
         revise_expansion=mcts_cfg.get("revise_expansion", 2),
-        improve_expansion=mcts_cfg.get("improve_expansion", 1),
         exploration_constant=mcts_cfg.get("exploration_constant", 1.414),
-        beam_width=mcts_cfg.get("beam_width"),
+        active_beam_width=mcts_cfg.get("active_beam_width", 0),
         landau_prior_enabled=prior_enabled,
     )
 
-    summary = supervisor.run()
+    mcts_result = supervisor.run()
+    trajectory = mcts_result.get("trajectory", []) or []
+
+    summarizer = TrajectorySummarizer(prompts_path="prompts/")
+    summary_md_path = task_dir / "summary.md"
+    summarizer.write_summary_markdown(
+        summary_md_path,
+        task_description=structured_problem.get("task_description", ""),
+        trajectory=trajectory,
+    )
+    summary_text = summary_md_path.read_text(encoding="utf-8")
+    print("Summary generated:", summary_md_path)
 
     if vis_cfg.get("enabled",False):
         vis_path = task_dir / "visualization.html"
-        generate_vis(vis_path,supervisor.tree)
+        generate_vis(
+            vis_path,
+            supervisor.tree,
+            task_description=structured_problem.get("task_description", ""),
+            subtasks=supervisor.subtasks,
+            summary=summary_text,
+        )
         print("visualization succeed")
-
-    summary_file = task_dir / "summary.json"
-    with open(summary_file, "w", encoding="utf-8") as f:
-        json.dump(summary, f, ensure_ascii=False, indent=2)
-    print("Supervisor finished. Summary saved to:", summary_file)
+    print("Supervisor finished.")
 
 
 if __name__ == "__main__":

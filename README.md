@@ -4,7 +4,7 @@
 2. 启动环境 conda activate phy
 3. 在instructions文件夹里新建 instructions/ <task_name>.txt
 4. 如有有输入附件，请放在input文件夹内，并且在instruction txt文件中简要介绍一下，给出相对路径
-5. 在config.yaml里将clarifier: query_file路径改成 instructions/<task_name>.txt
+5. 在config.yaml里将query_file路径改成 instructions/<task_name>.txt
 6. 运行程序 python run.py
 
 参数调节：
@@ -14,11 +14,10 @@
   3. Global：enable=true则可以在长期知识库中检索，否则只在针对本任务构建的local知识库中检索
 
 2. Monte Carlo树搜索参数
-  1. parallel_process：并行扩展的节点数，确保 > max{draft_expension, revise_expension, improve_expension}即可保证最大效率
-  2. max_node：进行尝试的最大节点数量，推荐在10～20之间
+  1. parallel_process：并行扩展的节点数，确保 > max{draft_expension, revise_expension}即可保证最大效率
+  2. max_rounds：MCTS迭代轮数上限，推荐在10～20之间
   3. draft_expension：针对新子任务起草新方法，建议设为2～4，是控制探索广度的主要参数
   4. revise_expension：针对有误的节点进行修改
-  5.  improve_expension：针对方法基本正确的节点进行完善，建议设为1，否则会负面影响探索深度
 
 # Agent输出内容格式
 Agent输出为一个文件夹，路径为outputs/<task_name>，文件夹中包含：

@@ -1,0 +1,7 @@
+Task description:
+{task_description}
+
+Best trajectory JSON:
+{trajectory}
+
+Write `summary.md` content in Markdown based on the trajectory.

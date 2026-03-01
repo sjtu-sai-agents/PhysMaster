@@ -11,7 +11,7 @@ class MarkdownWriter:
         topic: str,
         log_dir: str = "logs",
         depth: int | None = None,
-        node_index: int | None = None,
+        node_id: int | None = None,
         *,
         file_prefix: str | None = None,
         markdown_file: str | None = None,
@@ -19,13 +19,13 @@ class MarkdownWriter:
         self.problem = problem
         self.topic = topic
         self.depth = depth
-        self.node_index = node_index
+        self.node_id = node_id
         self.file_prefix = file_prefix
 
-        # 为每个 node 构造单独的日志目录：<task_dir>/depth{depth}_node{node}
+        # 为每个 node 构造单独的日志目录：<task_dir>/node_{node_id}
         base_path = Path(log_dir)
-        if self.depth is not None and self.node_index is not None:
-            base_path = base_path / f"depth{self.depth}_node{self.node_index}"
+        if self.node_id is not None:
+            base_path = base_path / f"node_{self.node_id}"
         self.log_dir = str(base_path)
 
         os.makedirs(self.log_dir, exist_ok=True)
@@ -66,10 +66,8 @@ class MarkdownWriter:
         prefix = sanitized[:60] if sanitized else 'problem'
 
         extra_parts = []
-        if self.depth is not None:
-            extra_parts.append(f"depth{self.depth}")
-        if self.node_index is not None:
-            extra_parts.append(f"node{self.node_index}")
+        if self.node_id is not None:
+            extra_parts.append(f"node{self.node_id}")
         extra = "_".join(extra_parts)
 
         if extra:
@@ -88,7 +86,7 @@ class MarkdownWriter:
 
     def write_to_markdown(self, text: str, mode: str = 'supervisor'):
         """
-        - Scheduler Response / Critic Response / Theoretician Response (##)
+        - Supervisor Response / Critic Response / Theoretician Response (##)
         - tool (expects text to include tool name/context) (#)
         """
         if text is None:
@@ -98,8 +96,8 @@ class MarkdownWriter:
         if mode != "tool":
             text = text.replace("#", "\\#")  # 转义 Markdown #
 
-        if mode in ('supervisor_scheduler', 'scheduler', 'Scheduler Response'):
-            self._write_lines(["## Scheduler Response\n", f"{text}\n"])
+        if mode in ('supervisor', 'Supervisor Response'):
+            self._write_lines(["## Supervisor Response\n", f"{text}\n"])
         elif mode in ('supervisor_critic', 'critic', 'Critic Response'):
             self._write_lines(["## Critic Response\n", f"{text}\n"])
         elif mode in ('theoretician_response', 'theoretician', 'Theoretician Response'):

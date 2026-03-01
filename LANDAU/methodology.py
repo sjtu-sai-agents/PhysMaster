@@ -143,7 +143,11 @@ def build_progressive_disclosure_prompt(grouped: Dict[str, List[Dict[str, Any]]]
 
 def main():
     # Change this if your repo root differs
-    skills_root = Path(r"./methodology/skills").resolve()
+    skills_root = Path(r"./techniques").resolve()
+    if not skills_root.exists():
+        legacy = Path(r"./methodology/skills").resolve()
+        if legacy.exists():
+            skills_root = legacy
     if not skills_root.exists():
         raise SystemExit(f"skills_root not found: {skills_root}")
 
