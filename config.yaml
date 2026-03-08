@@ -2,7 +2,7 @@
 
 # Basics
 pipeline:
-  query_file: "instructions/CS_kernel_all_b_v21.txt"
+  query_file: "instructions/CS_kernel_all_b_v23.txt"
   output_path: "outputs"
   parallel_processes: 3
   max_rounds: 24

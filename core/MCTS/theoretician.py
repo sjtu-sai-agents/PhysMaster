@@ -4,7 +4,7 @@ from typing import Dict, Any, List
 
 from utils.gpt5_utils import call_model
 from utils.python_utils import run_python_code
-from utils.julia_env.execute import run_julia_code
+# from utils.julia_env.execute import run_julia_code
 from utils.technique_loader import load_technique_specs
 from utils.save_utils import MarkdownWriter
 
@@ -29,25 +29,25 @@ PYTHON_TOOL = [
     }
 ]
 
-JULIA_TOOL = [
-    {
-        "type": "function",
-        "function": {
-            "name": "Julia_code_interpreter",
-            "description": "Execute julia code and return the result/output.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "julia code to execute",
-                    }
-                },
-                "required": ["code"],
-            },
-        },
-    }
-]
+# JULIA_TOOL = [
+#     {
+#         "type": "function",
+#         "function": {
+#             "name": "Julia_code_interpreter",
+#             "description": "Execute julia code and return the result/output.",
+#             "parameters": {
+#                 "type": "object",
+#                 "properties": {
+#                     "code": {
+#                         "type": "string",
+#                         "description": "julia code to execute",
+#                     }
+#                 },
+#                 "required": ["code"],
+#             },
+#         },
+#     }
+# ]
 
 TECHNIQUE_TOOL = [
     {
@@ -114,10 +114,10 @@ class Theoretician:
             markdown_writer.write_to_markdown(prompt + "\n", mode="supervisor")
         print("========== Supervisor ========== \n" + prompt + "\n")
 
-        tools = PYTHON_TOOL + JULIA_TOOL + TECHNIQUE_TOOL
+        tools = PYTHON_TOOL + TECHNIQUE_TOOL
         tool_functions = {
             "Python_code_interpreter": run_python_code,
-            "Julia_code_interpreter": run_julia_code,
+            # "Julia_code_interpreter": run_julia_code,
             "load_technique_specs": load_technique_specs,
         }
 
