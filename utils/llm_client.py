@@ -34,6 +34,7 @@ class LLMClient:
         self.client = OpenAI(
             api_key=str(llm_config["api_key"]),
             base_url=str(llm_config["base_url"]),
+            max_retries=3
         )
 
     def call_without_tools(
@@ -129,13 +130,23 @@ class LLMClient:
         return ""
 
 
+_DEFAULT_CLIENT: "LLMClient | None" = None
+
+
+def _get_default_client(config_path: str | Path | None = None) -> "LLMClient":
+    global _DEFAULT_CLIENT
+    if _DEFAULT_CLIENT is None:
+        _DEFAULT_CLIENT = LLMClient(config_path=config_path)
+    return _DEFAULT_CLIENT
+
+
 def call_model_without_tools(
     system_prompt: str,
     user_prompt: str,
     model_name: Optional[str] = None,
     config_path: str | Path | None = None,
 ) -> str:
-    client = LLMClient(config_path=config_path)
+    client = _get_default_client(config_path=config_path)
     return client.call_without_tools(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
@@ -152,7 +163,7 @@ def call_model(
     max_tool_calls: int = 20,
     config_path: str | Path | None = None,
 ) -> str:
-    client = LLMClient(config_path=config_path)
+    client = _get_default_client(config_path=config_path)
     return client.call_with_tools(
         system_prompt=system_prompt,
         user_prompt=user_prompt,

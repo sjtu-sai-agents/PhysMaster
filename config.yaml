@@ -1,13 +1,13 @@
 # PhysMaster Configs
 
 llm:
-  base_url: "http://123.129.219.111:3000/v1"
-  api_key: "sk-hnHVnUfqxBsPjGmC7EYAu5TWp9m31YqUJlPga0zulaqWRPTA"
-  model: "gpt-5"
+  base_url: "Your Base URL"
+  api_key: "Your Api Key"
+  model: "GPT-5"
 
 # Basics
 pipeline:
-  query_file: "instructions/CS_kernel_all_b_v23.txt"
+  query_file: "instructions/test.txt"
   output_path: "outputs"
   parallel_processes: 3
   max_rounds: 24

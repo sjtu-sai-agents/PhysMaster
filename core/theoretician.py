@@ -10,10 +10,11 @@ from utils.skill_loader import build_skill_brief_prompt, load_skill_specs
 from utils.tool_schemas import LIBRARY_TOOLS, THEORETICIAN_CORE_TOOLS
 
 class Theoretician:
-    def __init__(self, prompts_path: str = "prompts/", library_enabled: bool = True):
+    def __init__(self, prompts_path: str = "prompts/", library_enabled: bool = True, config_path :str = 'config.yaml'):
         self.prompts_path = Path(prompts_path)
         self.library_enabled = bool(library_enabled)
         self.library_retriever = LibraryRetriever() if self.library_enabled else None
+        self.config_path = config_path
         prompt_files = {
             "theoretician_prompt": "theoretician_prompt.txt",
             "theoretician_system_prompt": "theoretician_system_prompt.txt",
@@ -79,7 +80,7 @@ class Theoretician:
         wrapped_tool_functions = {
             "Python_code_interpreter": lambda **kwargs: (
                 self._log_tool_call("Python_code_interpreter", node_metadata),
-                run_python_code(**kwargs),
+                run_python_code(cwd=output_dir or None, **kwargs),
             )[1],
             "load_skill_specs": lambda **kwargs: (
                 self._log_tool_call("load_skill_specs", node_metadata),
@@ -103,12 +104,13 @@ class Theoretician:
             user_prompt=prompt,
             tools=tools,
             tool_functions=wrapped_tool_functions,
+            config_path=self.config_path
         )
 
         return response
 
 
-def run_theo_node(payload: Dict[str, Any]) -> Dict[str, Any]:
+def run_theo_node(payload: Dict[str, Any],config_path:str = 'config.yaml') -> Dict[str, Any]:
 
         depth = payload["depth"]
         node_id = int(payload["node_id"])
@@ -120,7 +122,7 @@ def run_theo_node(payload: Dict[str, Any]) -> Dict[str, Any]:
         with contract_file.open(encoding="utf-8") as f:
             structured_problem = json.load(f)
 
-        theoretician = Theoretician(library_enabled=bool(payload.get("library_enabled", True)))
+        theoretician = Theoretician(library_enabled=bool(payload.get("library_enabled", True)),config_path=config_path)
 
         node_output_dir = Path(task_dir) / f"node_{node_id}"
         os.makedirs(node_output_dir, exist_ok=True)

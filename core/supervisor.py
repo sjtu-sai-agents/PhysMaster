@@ -48,6 +48,7 @@ class SupervisorOrchestrator:
         active_beam_width: int = 0,
         landau_library_enabled: bool = True,
         landau_prior_enabled: bool = True,
+        config_path: str = 'config.yaml'
     ):
         self.structured_problem = structured_problem
         self.task_dir = task_dir
@@ -60,6 +61,7 @@ class SupervisorOrchestrator:
         self.active_beam_width = max(0, int(active_beam_width or 0))
         self.landau_library_enabled = bool(landau_library_enabled)
         self.landau_prior_enabled = bool(landau_prior_enabled)
+        self.config_path = config_path
         if self.landau_prior_enabled and PriorRetriever is None:
             print("[Supervisor] prior retriever unavailable; disable LANDAU prior search.")
             self.landau_prior_enabled = False
@@ -241,7 +243,7 @@ class SupervisorOrchestrator:
             user_prompt=prompt,
             tools=self.kb_search_tools,
             tool_functions=self._kb_tool_functions("Supervisor", node),
-            model_name="gpt-5",
+            config_path=self.config_path
         )
         return response
 
@@ -268,6 +270,7 @@ class SupervisorOrchestrator:
             user_prompt=prompt,
             tools=self.kb_search_tools,
             tool_functions=self._kb_tool_functions("Critic", node),
+            config_path=self.config_path
         )
 
         parsed = self._extract_json_object(response)
@@ -351,7 +354,7 @@ class SupervisorOrchestrator:
                 f"(node_id={node_id} subtask_id={subtask_id} node_type={node_type}) "
                 f"task assigned 📖"
             )
-            futures.append(_GLOBAL_POOL.submit(run_theo_node, payload))
+            futures.append(_GLOBAL_POOL.submit(run_theo_node, payload, self.config_path))
 
         wait(futures)
 
@@ -398,7 +401,11 @@ class SupervisorOrchestrator:
             outputs.append((child_node, node_output))
 
         for child_node, _ in outputs:
-            evaluation = self._call_critic(child_node)
+            try:
+                evaluation = self._call_critic(child_node) or ""
+            except Exception:
+                evaluation = ""
+                print("[Critic] call failed.")        
             child_node.evaluation = evaluation
             reward = self._extract_reward(evaluation)
             child_node.reward = reward

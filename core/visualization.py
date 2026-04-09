@@ -8,7 +8,7 @@ from typing import Any
 
 from .mcts import MCTSTree
 
-TEMPLATE_FILE = Path(__file__).resolve().parent / "visualization_template.html"
+TEMPLATE_FILE = Path(__file__).resolve().parent.parent / "utils/visualization_template.html"
 INJECT_MARKER = "<!-- __DATA_INJECT__ -->"
 
 

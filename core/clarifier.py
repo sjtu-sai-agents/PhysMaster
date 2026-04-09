@@ -12,10 +12,11 @@ SYSTEM_PROMPT = load_prompt("prompts/clarifier_system_prompt.txt")
 USER_PROMPT = load_prompt("prompts/clarifier_prompt.txt")
 
 class Clarifier:
-    def __init__(self, config, workflow_enabled: bool = True):
+    def __init__(self, config, workflow_enabled: bool = True, config_path:str = 'config.yaml'):
         self.max_keys = config.get("max_key_concpets",5)
         self.workflow_dir = self._resolve_workflow_dir(config)
         self.workflow_enabled = bool(workflow_enabled)
+        self.config_path = config_path
         self._stopwords = {
             "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
             "in", "is", "it", "of", "on", "or", "that", "the", "this", "to",
@@ -23,7 +24,7 @@ class Clarifier:
             "problem", "task", "workflow", "methodology", "method",
         }
 
-    def _resolve_workflow_dir(self, config) -> Path:
+    def _resolve_workflow_dir(self,config):
         project_root = Path(__file__).resolve().parents[2]
         configured = (
             config.get("workflow_dir")
@@ -32,7 +33,9 @@ class Clarifier:
         if configured:
             p = Path(str(configured))
             return p if p.is_absolute() else (project_root / p).resolve()
-
+        
+    def _resolve_default_workflow_dir(self) -> Path:
+        project_root = Path(__file__).resolve().parents[1]
         candidates = [
             project_root / "LANDAU" / "workflow",
             project_root / "LANDAU" / "methodology" / "workflow",
@@ -59,11 +62,36 @@ class Clarifier:
             return ""
         goal = wf.get("Goal") or wf.get("goal") or ""
         return str(goal).strip()
+    
+    def _parse_workflow_file(self):
+        if self.workflow_dir.exists() and self.workflow_dir.is_file():
+            try:
+                raw = self.workflow_dir.read_text(encoding="utf-8")
+                data = yaml.safe_load(raw)
+                goal = self._extract_workflow_goal(data)
+                return {"path": str(self.workflow_dir), "goal": goal, "raw": raw}
+            except Exception:
+                print(f"[Clarifier] Workflow loading failed, loading path: {self.workflow_dir}")
+        else:
+            print(f"[Clarifier] Workflow loading failed, loading path: {self.workflow_dir}")
+            return None
 
     def _select_workflow_by_goal(self, user_query: str) -> dict | None:
         print("[Clarifier] Start searching workflows")
-        if not self.workflow_dir.exists():
-            print(f"[Clarifier] Workflow search skipped (dir not found): {self.workflow_dir}")
+
+        tokens = self._remove_stopwords(self._tokenize_query(user_query))
+        if not tokens:
+            print("[Clarifier] Workflow search finished (no tokens)")
+            return None
+
+        workflow_file = self._parse_workflow_file()
+        if workflow_file is not None:
+            print(f"[Clarifier] Selected workflow reference {workflow_file['path']}")
+            return workflow_file
+        
+        default_dir = self._resolve_default_workflow_dir()
+        if not default_dir.exists():
+            print(f"[Clarifier] Workflow search skipped (dir not found): {default_dir}")
             return None
         tokens = self._remove_stopwords(self._tokenize_query(user_query))
         if not tokens:
@@ -72,7 +100,7 @@ class Clarifier:
         best = None
         best_score = 0
 
-        for path in sorted(self.workflow_dir.glob("*.y*ml")):
+        for path in sorted(default_dir.glob("*.y*ml")):
             try:
                 raw = path.read_text(encoding="utf-8")
                 data = yaml.safe_load(raw)
@@ -110,7 +138,7 @@ class Clarifier:
         return best
 
     def task_spec(self, user_query):
-        schema_path = Path(__file__).resolve().parent / "contract_template.json"
+        schema_path = Path(__file__).resolve().parent.parent / "utils/contract_template.json"
         if not schema_path.exists():
             raise FileNotFoundError(f"Contract template not found: {schema_path}")
         with schema_path.open("r", encoding="utf-8") as f:
@@ -137,6 +165,7 @@ class Clarifier:
         response = call_model_without_tools(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
+            config_path=self.config_path
         )
 
         return response, schema

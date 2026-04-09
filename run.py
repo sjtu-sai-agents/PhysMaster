@@ -1,6 +1,7 @@
 import json
 import yaml
 import os
+import argparse
 
 from pathlib import Path
 from typing import Any, Dict, Tuple
@@ -28,7 +29,7 @@ def get_task_name(structured_problem) -> str:
     return task_name
 
 
-def clarify_query(query_path: str, clr_cfg, workflow_enabled: bool = True) -> Dict[str, Any]:
+def clarify_query(query_path: str, clr_cfg, workflow_enabled: bool = True, config_path:str = "config.yaml") -> Dict[str, Any]:
     """
     兼容 main() 里的调用：
         structured_problem, task_dir = clarify_query(query_path, clarifier_cfg)
@@ -43,7 +44,7 @@ def clarify_query(query_path: str, clr_cfg, workflow_enabled: bool = True) -> Di
     else:
         print("[LANDAU] Workflow: disabled")
 
-    clr = Clarifier(clr_cfg, workflow_enabled=workflow_enabled)
+    clr = Clarifier(clr_cfg, workflow_enabled=workflow_enabled, config_path=config_path)
     structured_problem = clr.run(content)
 
     instruction_filename = Path(path).stem
@@ -62,6 +63,7 @@ def clarify_query(query_path: str, clr_cfg, workflow_enabled: bool = True) -> Di
 
 
 def main(config_path: str = "config.yaml"):
+    print(f"config file path: {config_path}")
     cfg = load_config(config_path)
 
     pipeline_cfg = cfg.get("pipeline", {})
@@ -91,7 +93,7 @@ def main(config_path: str = "config.yaml"):
     clarifier_cfg["workflow_dir"] = str(workflow_root)
 
     structured_problem, task_dir, task_name = clarify_query(
-        query_path, clarifier_cfg, workflow_enabled=workflow_enabled
+        query_path, clarifier_cfg, workflow_enabled=workflow_enabled, config_path=config_path
     )
 
     if library_enabled:
@@ -127,12 +129,13 @@ def main(config_path: str = "config.yaml"):
         active_beam_width=mcts_cfg.get("active_beam_width", 0),
         landau_library_enabled=library_enabled,
         landau_prior_enabled=prior_enabled,
+        config_path=config_path
     )
 
     mcts_result = supervisor.run()
     trajectory = mcts_result.get("trajectory", []) or []
 
-    summarizer = TrajectorySummarizer(prompts_path="prompts/")
+    summarizer = TrajectorySummarizer(prompts_path="prompts/",config_path=config_path)
     summary_md_path = task_dir / "summary.md"
     contract_for_summary = json.dumps(structured_problem, ensure_ascii=False, indent=2)
     summarizer.write_summary_markdown(
@@ -156,5 +159,8 @@ def main(config_path: str = "config.yaml"):
     
 
 if __name__ == "__main__":
-    cfg_file = "config.yaml"
-    main(cfg_file)
+    parser = argparse.ArgumentParser(description='physmaster')
+    parser.add_argument('--cfg_file', '-c', type=str, default="config.yaml",
+                        help='config file path')
+    args = parser.parse_args()
+    main(args.cfg_file)

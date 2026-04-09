@@ -6,10 +6,11 @@ from utils.llm_client import call_model_without_tools
 
 
 class TrajectorySummarizer:
-    def __init__(self, prompts_path: str = "prompts/"):
+    def __init__(self, prompts_path: str = "prompts/",config_path:str = 'config.yaml'):
         self.prompts_path = Path(prompts_path)
         self.summarizer_prompt = self._load_prompt("summarizer_prompt.txt")
         self.summarizer_system_prompt = self._load_prompt("summarizer_system_prompt.txt")
+        self.config_path = config_path
 
     def _load_prompt(self, filename: str) -> str:
         with open(self.prompts_path / filename, "r", encoding="utf-8") as f:
@@ -29,7 +30,7 @@ class TrajectorySummarizer:
             summary_md = call_model_without_tools(
                 system_prompt=self.summarizer_system_prompt,
                 user_prompt=prompt,
-                model_name="gpt-5",
+                config_path=self.config_path
             ).strip()
             if summary_md:
                 return summary_md
