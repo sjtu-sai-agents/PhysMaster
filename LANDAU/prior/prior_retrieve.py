@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List
@@ -19,16 +20,25 @@ CFG = {
         "knowledge": CURRENT_DIR / "knowledge",
         "index": CURRENT_DIR / "index",
     },
-    "embedding": {"model": "BAAI/bge-small-en-v1.5"},
-    "dense_search": {"candidate_k": 24},
-    "sparse_search": {"candidate_k": 24, "k1": 1.5, "b": 0.75},
-    "hybrid": {"dense_weight": 0.65, "sparse_weight": 0.35},
+    "embedding": {
+        "model": "BAAI/bge-small-en-v1.5",
+        "query_instruction": "Represent this sentence for searching relevant passages: ",
+    },
+    "dense_search": {"candidate_k": 100},
+    "sparse_search": {"candidate_k": 100, "k1": 1.5, "b": 0.75},
+    "rrf": {"k": 60},
     "rerank": {
-        "dense_weight": 0.45,
+        "dense_weight": 0.55,
         "sparse_weight": 0.2,
-        "overlap_weight": 0.2,
+        "overlap_weight": 0.1,
         "keyword_weight": 0.1,
         "phrase_weight": 0.05,
+    },
+    "hyde": {
+        "enabled": True,
+        "api_key": os.environ.get("HYDE_API_KEY", ""),
+        "base_url": os.environ.get("HYDE_BASE_URL", ""),
+        "model": os.environ.get("HYDE_MODEL", ""),
     },
 }
 
@@ -40,6 +50,12 @@ QUERY_ALIASES = {
     "pz": ["p_z", "hadron momentum"],
 }
 
+HYDE_PROMPT = """You are a physics textbook. Write a short passage (100-200 words) that directly answers the following question, as if it were an excerpt from a textbook. Include relevant equations, physical quantities, and technical terms. Do not add preamble or meta-commentary.
+
+Question: {query}
+
+Passage:"""
+
 
 def _tokenize(text: str) -> List[str]:
     return re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]+", (text or "").lower())
@@ -48,7 +64,7 @@ def _tokenize(text: str) -> List[str]:
 class PriorRetriever:
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"[*] 正在加载检索模型 ({self.device})...")
+        print(f"[*] Loading retrieval model ({self.device})...")
         self.model = SentenceTransformer(CFG["embedding"]["model"], device=self.device)
 
         self.index_dir = Path(CFG["dirs"]["index"])
@@ -57,23 +73,60 @@ class PriorRetriever:
         self.id_map_path = self.index_dir / "id_map.jsonl"
         self.meta_path = self.index_dir / "index_meta.json"
         self.knowledge_path = self.knowledge_dir / "chunks.jsonl"
+        self.parent_knowledge_path = self.knowledge_dir / "parent_chunks.jsonl"
 
         self.knowledge_base = self._load_knowledge()
+        self.parent_knowledge_base = self._load_parent_knowledge()
         self.id_map = self._load_id_map()
         self.index = self._load_or_rebuild_index()
 
         self._token_cache: Dict[str, List[str]] = {
-            chunk_id: _tokenize(data.get("text", ""))
+            chunk_id: _tokenize(data.get("context_prefix", "") + data.get("text", ""))
             for chunk_id, data in self.knowledge_base.items()
         }
         self._build_sparse_stats()
+
+        # Initialize HyDE LLM client
+        self._hyde_client = None
+        hyde_cfg = CFG["hyde"]
+        if hyde_cfg["enabled"] and hyde_cfg["api_key"] and hyde_cfg["base_url"] and hyde_cfg["model"]:
+            try:
+                from openai import OpenAI
+                self._hyde_client = OpenAI(
+                    api_key=hyde_cfg["api_key"],
+                    base_url=hyde_cfg["base_url"],
+                )
+                print(f"[*] HyDE enabled (model: {hyde_cfg['model']})")
+            except ImportError:
+                print("[!] openai package not installed, HyDE disabled.")
+        else:
+            print("[*] HyDE disabled (set HYDE_API_KEY, HYDE_BASE_URL, HYDE_MODEL env vars to enable)")
+
 
     def _load_knowledge(self) -> Dict[str, Dict[str, Any]]:
         kb: Dict[str, Dict[str, Any]] = {}
         with self.knowledge_path.open("r", encoding="utf-8") as f:
             for line in f:
+                line = line.strip()
+                if not line:
+                    continue
                 data = json.loads(line)
                 kb[data["chunk_id"]] = data
+        return kb
+
+    def _load_parent_knowledge(self) -> Dict[str, Dict[str, Any]]:
+        kb: Dict[str, Dict[str, Any]] = {}
+        if not self.parent_knowledge_path.exists():
+            print("[!] Warning: parent_chunks.jsonl not found, parent context disabled.")
+            return kb
+        with self.parent_knowledge_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                data = json.loads(line)
+                kb[data["chunk_id"]] = data
+        print(f"[*] Loaded {len(kb)} parent chunks.")
         return kb
 
     def _load_id_map(self) -> Dict[int, str]:
@@ -110,9 +163,9 @@ class PriorRetriever:
         return index
 
     def _rebuild_dense_index(self):
-        texts = [self.knowledge_base[cid]["text"] for cid in self.knowledge_base]
+        texts = [self.knowledge_base[cid].get("context_prefix", "") + self.knowledge_base[cid]["text"] for cid in self.knowledge_base]
         chunk_ids = list(self.knowledge_base.keys())
-        embs = self.model.encode(texts, show_progress_bar=False, normalize_embeddings=True)
+        embs = self.model.encode(texts, show_progress_bar=True, normalize_embeddings=True)
         embs = np.asarray(embs, dtype="float32")
         index = faiss.IndexFlatIP(embs.shape[1])
         index.add(embs)
@@ -137,6 +190,7 @@ class PriorRetriever:
         self.id_map = {idx: chunk_id for idx, chunk_id in enumerate(chunk_ids)}
         return index
 
+
     def _build_sparse_stats(self):
         self.doc_len: Dict[str, int] = {}
         self.doc_freq: Dict[str, int] = {}
@@ -149,6 +203,24 @@ class PriorRetriever:
                 self.doc_freq[token] = self.doc_freq.get(token, 0) + 1
         self.num_docs = max(1, len(self._token_cache))
         self.avg_doc_len = total_len / self.num_docs if self.num_docs else 1.0
+
+
+    def _generate_hyde_document(self, query: str) -> str | None:
+        if not self._hyde_client:
+            return None
+        try:
+            response = self._hyde_client.chat.completions.create(
+                model=CFG["hyde"]["model"],
+                messages=[{"role": "user", "content": HYDE_PROMPT.format(query=query)}],
+                temperature=0.3,
+                max_tokens=300,
+            )
+            hyde_text = response.choices[0].message.content.strip()
+            return hyde_text if hyde_text else None
+        except Exception as e:
+            print(f"[!] HyDE generation failed: {e}")
+            return None
+
 
     def _rewrite_query(self, query: str) -> List[str]:
         tokens = _tokenize(query)
@@ -164,10 +236,27 @@ class PriorRetriever:
             variants.append(normalized)
         return [variant for variant in dict.fromkeys(v for v in variants if v.strip())]
 
-    def _dense_search(self, query_variants: List[str], candidate_k: int) -> Dict[str, float]:
+
+    def _dense_search(self, query_variants: List[str], candidate_k: int,
+                      hyde_doc: str | None = None) -> Dict[str, float]:
         scores: Dict[str, float] = {}
+        prefix = CFG["embedding"].get("query_instruction", "")
+
+        # HyDE: embed the hypothetical document (no query instruction prefix)
+        if hyde_doc:
+            hyde_emb = self.model.encode([hyde_doc], normalize_embeddings=True).astype("float32")
+            similarities, indices = self.index.search(hyde_emb, candidate_k)
+            for sim, idx in zip(similarities[0], indices[0]):
+                if idx == -1:
+                    continue
+                chunk_id = self.id_map.get(int(idx))
+                if not chunk_id or chunk_id not in self.knowledge_base:
+                    continue
+                scores[chunk_id] = max(scores.get(chunk_id, -1.0), float(sim))
+
+        # Original query variants search
         for variant in query_variants:
-            q_emb = self.model.encode([variant], normalize_embeddings=True).astype("float32")
+            q_emb = self.model.encode([prefix + variant], normalize_embeddings=True).astype("float32")
             similarities, indices = self.index.search(q_emb, candidate_k)
             for sim, idx in zip(similarities[0], indices[0]):
                 if idx == -1:
@@ -177,6 +266,7 @@ class PriorRetriever:
                     continue
                 scores[chunk_id] = max(scores.get(chunk_id, -1.0), float(sim))
         return scores
+
 
     def _bm25_score(self, query_tokens: List[str], chunk_id: str) -> float:
         tokens = self._token_cache.get(chunk_id, [])
@@ -212,6 +302,66 @@ class PriorRetriever:
         ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)[:candidate_k]
         return dict(ranked)
 
+
+    def _rrf_fusion(self, dense_scores: Dict[str, float],
+                    sparse_scores: Dict[str, float]) -> Dict[str, float]:
+        """Reciprocal Rank Fusion: merges two ranked lists by rank, not score."""
+        k = CFG["rrf"]["k"]
+
+        dense_ranked = sorted(dense_scores, key=lambda cid: dense_scores[cid], reverse=True)
+        sparse_ranked = sorted(sparse_scores, key=lambda cid: sparse_scores[cid], reverse=True)
+
+        dense_rank = {cid: rank for rank, cid in enumerate(dense_ranked)}
+        sparse_rank = {cid: rank for rank, cid in enumerate(sparse_ranked)}
+
+        all_ids = set(dense_rank) | set(sparse_rank)
+        max_rank = len(all_ids)
+        fused: Dict[str, float] = {}
+        for cid in all_ids:
+            dr = dense_rank.get(cid, max_rank)
+            sr = sparse_rank.get(cid, max_rank)
+            fused[cid] = 1.0 / (k + dr) + 1.0 / (k + sr)
+        return fused
+
+    def _normalize_scores(self, scores: Dict[str, float]) -> Dict[str, float]:
+        if not scores:
+            return {}
+        max_score = max(scores.values())
+        min_score = min(scores.values())
+        if math.isclose(max_score, min_score):
+            return {key: 1.0 for key in scores}
+        return {
+            key: (value - min_score) / (max_score - min_score)
+            for key, value in scores.items()
+        }
+
+    def _rerank(self, query: str, chunk_ids: List[str],
+                dense_scores: Dict[str, float],
+                sparse_scores: Dict[str, float]) -> List[str]:
+        query_tokens = set(_tokenize(query))
+        query_text = query.lower()
+        norm_dense = self._normalize_scores(dense_scores)
+        norm_sparse = self._normalize_scores(sparse_scores)
+        ranked: List[tuple[str, float]] = []
+        for chunk_id in chunk_ids:
+            item = self.knowledge_base[chunk_id]
+            text = (item.get("context_prefix", "") + item.get("text", "")).lower()
+            chunk_tokens = set(self._token_cache.get(chunk_id, []))
+            overlap = len(query_tokens & chunk_tokens) / max(len(query_tokens), 1)
+            keyword_overlap = len(query_tokens & {kw.lower() for kw in item.get("keywords", [])}) / max(len(query_tokens), 1)
+            phrase_bonus = 1.0 if any(phrase in text for phrase in [query_text, query_text.replace("_", " ")]) else 0.0
+            score = (
+                CFG["rerank"]["dense_weight"] * norm_dense.get(chunk_id, 0.0)
+                + CFG["rerank"]["sparse_weight"] * norm_sparse.get(chunk_id, 0.0)
+                + CFG["rerank"]["overlap_weight"] * overlap
+                + CFG["rerank"]["keyword_weight"] * keyword_overlap
+                + CFG["rerank"]["phrase_weight"] * phrase_bonus
+            )
+            ranked.append((chunk_id, score))
+        ranked.sort(key=lambda item: item[1], reverse=True)
+        return [chunk_id for chunk_id, _ in ranked]
+
+
     def _apply_filters(
         self,
         chunk_ids: List[str],
@@ -234,47 +384,12 @@ class PriorRetriever:
                 continue
             if keyword_tokens:
                 haystack = {kw.lower() for kw in item.get("keywords", [])}
-                haystack.update(_tokenize(item.get("text", "")))
+                haystack.update(_tokenize(item.get("context_prefix", "") + item.get("text", "")))
                 if not keyword_tokens.intersection(haystack):
                     continue
             filtered.append(chunk_id)
         return filtered
 
-    def _normalize_scores(self, scores: Dict[str, float]) -> Dict[str, float]:
-        if not scores:
-            return {}
-        max_score = max(scores.values())
-        min_score = min(scores.values())
-        if math.isclose(max_score, min_score):
-            return {key: 1.0 for key in scores}
-        return {
-            key: (value - min_score) / (max_score - min_score)
-            for key, value in scores.items()
-        }
-
-    def _rerank(self, query: str, chunk_ids: List[str], dense_scores: Dict[str, float], sparse_scores: Dict[str, float]) -> List[str]:
-        query_tokens = set(_tokenize(query))
-        query_text = query.lower()
-        norm_dense = self._normalize_scores(dense_scores)
-        norm_sparse = self._normalize_scores(sparse_scores)
-        ranked: List[tuple[str, float]] = []
-        for chunk_id in chunk_ids:
-            item = self.knowledge_base[chunk_id]
-            text = item.get("text", "").lower()
-            chunk_tokens = set(self._token_cache.get(chunk_id, []))
-            overlap = len(query_tokens & chunk_tokens) / max(len(query_tokens), 1)
-            keyword_overlap = len(query_tokens & {kw.lower() for kw in item.get("keywords", [])}) / max(len(query_tokens), 1)
-            phrase_bonus = 1.0 if any(phrase in text for phrase in [query_text, query_text.replace("_", " ")]) else 0.0
-            score = (
-                CFG["rerank"]["dense_weight"] * norm_dense.get(chunk_id, 0.0)
-                + CFG["rerank"]["sparse_weight"] * norm_sparse.get(chunk_id, 0.0)
-                + CFG["rerank"]["overlap_weight"] * overlap
-                + CFG["rerank"]["keyword_weight"] * keyword_overlap
-                + CFG["rerank"]["phrase_weight"] * phrase_bonus
-            )
-            ranked.append((chunk_id, score))
-        ranked.sort(key=lambda item: item[1], reverse=True)
-        return [chunk_id for chunk_id, _ in ranked]
 
     def retrieve(
         self,
@@ -288,48 +403,84 @@ class PriorRetriever:
         rewrite_query: bool = True,
     ) -> List[Dict[str, Any]]:
         query_variants = self._rewrite_query(query) if rewrite_query else [query]
-        dense_scores = self._dense_search(query_variants, CFG["dense_search"]["candidate_k"])
-        sparse_scores = self._sparse_search(query_variants, CFG["sparse_search"]["candidate_k"])
+        use_hyde = CFG["hyde"]["enabled"] and self._hyde_client is not None
 
-        norm_dense = self._normalize_scores(dense_scores)
-        norm_sparse = self._normalize_scores(sparse_scores)
-        combined: Dict[str, float] = {}
-        for chunk_id in set(norm_dense) | set(norm_sparse):
-            combined[chunk_id] = (
-                CFG["hybrid"]["dense_weight"] * norm_dense.get(chunk_id, 0.0)
-                + CFG["hybrid"]["sparse_weight"] * norm_sparse.get(chunk_id, 0.0)
+        if use_hyde:
+            hyde_doc = self._generate_hyde_document(query)
+            dense_scores = self._dense_search(
+                query_variants, CFG["dense_search"]["candidate_k"], hyde_doc=hyde_doc
+            )
+            sparse_scores = self._sparse_search(query_variants, CFG["sparse_search"]["candidate_k"])
+            combined = self._rrf_fusion(dense_scores, sparse_scores)
+            candidate_ids = [cid for cid, _ in sorted(combined.items(), key=lambda x: x[1], reverse=True)]
+        else:
+            dense_scores = self._dense_search(
+                query_variants, CFG["dense_search"]["candidate_k"]
+            )
+            sparse_scores = self._sparse_search(query_variants, CFG["sparse_search"]["candidate_k"])
+            combined = self._rrf_fusion(dense_scores, sparse_scores)
+            candidate_ids = [cid for cid, _ in sorted(combined.items(), key=lambda x: x[1], reverse=True)]
+            candidate_ids = self._apply_filters(
+                candidate_ids,
+                source_ids=source_ids,
+                chapter=chapter,
+                section_prefix=section_prefix,
+                keywords=keywords,
+            )
+            candidate_ids = self._rerank(query, candidate_ids, dense_scores, sparse_scores)[:100]
+
+        if use_hyde:
+            candidate_ids = self._apply_filters(
+                candidate_ids,
+                source_ids=source_ids,
+                chapter=chapter,
+                section_prefix=section_prefix,
+                keywords=keywords,
             )
 
-        candidate_ids = [chunk_id for chunk_id, _ in sorted(combined.items(), key=lambda item: item[1], reverse=True)]
-        candidate_ids = self._apply_filters(
-            candidate_ids,
-            source_ids=source_ids,
-            chapter=chapter,
-            section_prefix=section_prefix,
-            keywords=keywords,
-        )
-        reranked_ids = self._rerank(query, candidate_ids, dense_scores, sparse_scores)[:top_k]
-
         results: List[Dict[str, Any]] = []
-        for chunk_id in reranked_ids:
+        seen_parent_ids: set[str] = set()
+        source_counts: Dict[str, int] = {}
+        max_per_source = max(1, (top_k + 1) // 2)  # at most half from one source
+
+        for chunk_id in candidate_ids:
             chunk_data = self.knowledge_base[chunk_id]
+            parent_chunk_id = chunk_data.get("parent_chunk_id")
+            parent_chunk = self.parent_knowledge_base.get(parent_chunk_id) if parent_chunk_id else None
+
+            if parent_chunk_id and parent_chunk_id in seen_parent_ids:
+                continue
+            if parent_chunk_id:
+                seen_parent_ids.add(parent_chunk_id)
+
+            # Source diversity: limit results per source
+            src_id = chunk_data.get("source", {}).get("source_id", "")
+            if source_counts.get(src_id, 0) >= max_per_source:
+                continue
+            source_counts[src_id] = source_counts.get(src_id, 0) + 1
+
             res_item: Dict[str, Any] = {
                 "chunk_id": chunk_id,
-                "score": round(combined.get(chunk_id, 0.0), 4),
+                "score": round(combined.get(chunk_id, 0.0), 6),
                 "dense_score": round(dense_scores.get(chunk_id, 0.0), 4),
                 "sparse_score": round(sparse_scores.get(chunk_id, 0.0), 4),
-                "text": chunk_data["text"],
+                "text": chunk_data.get("context_prefix", "") + chunk_data["text"],
                 "citation": chunk_data["citation"],
                 "locator": chunk_data["locator"],
                 "source": chunk_data["source"],
                 "keywords": chunk_data["keywords"],
+                "parent_chunk_id": parent_chunk_id,
+                "parent_text": parent_chunk["text"] if parent_chunk else "",
+                "parent_citation": parent_chunk.get("citation", "") if parent_chunk else "",
             }
             if expand_context:
-                res_item["context_prev"] = self.knowledge_base.get(chunk_data["prev_chunk_id"], {}).get("text", "")
-                res_item["context_next"] = self.knowledge_base.get(chunk_data["next_chunk_id"], {}).get("text", "")
+                res_item["context_prev"] = self.knowledge_base.get(chunk_data.get("prev_chunk_id"), {}).get("text", "")
+                res_item["context_next"] = self.knowledge_base.get(chunk_data.get("next_chunk_id"), {}).get("text", "")
             results.append(res_item)
+            if len(results) >= top_k:
+                break
         return results
-
+    
     def format_for_llm(self, results: List[Dict[str, Any]]) -> str:
         if not results:
             return ""

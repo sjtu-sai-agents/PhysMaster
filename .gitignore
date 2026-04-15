@@ -1,6 +1,8 @@
 # User-requested ignores
 agent/librarian/Pasa-X-papermaster_new/data/
 LANDAU/prior/source/
+LANDAU/prior/index/
+LANDAU/prior/knowledge/
 
 # Common Python ignores
 __pycache__/
@@ -8,3 +10,4 @@ outputs/
 inputs/
 instructions/
 *.pyc
+*env

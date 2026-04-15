@@ -6,14 +6,14 @@ from concurrent.futures import ProcessPoolExecutor, wait
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from utils.llm_client import call_model
+from utils.llm_client import call_model, call_model_without_tools
 from utils.tool_schemas import LIBRARY_PARSE_TOOL, LIBRARY_SEARCH_TOOL, PRIOR_SEARCH_TOOL
 
 from LANDAU.library import LibraryRetriever
 from .mcts import MCTSNode, MCTSTree
 
 try:
-    from LANDAU.prior.prior_retrive import PriorRetriever
+    from LANDAU.prior.prior_retrieve import PriorRetriever
 except Exception:  # pragma: no cover - optional dependency (faiss)
     PriorRetriever = None
 
@@ -62,6 +62,7 @@ class SupervisorOrchestrator:
         self.landau_library_enabled = bool(landau_library_enabled)
         self.landau_prior_enabled = bool(landau_prior_enabled)
         self.config_path = config_path
+
         if self.landau_prior_enabled and PriorRetriever is None:
             print("[Supervisor] prior retriever unavailable; disable LANDAU prior search.")
             self.landau_prior_enabled = False
@@ -74,6 +75,8 @@ class SupervisorOrchestrator:
         if self.landau_prior_enabled:
             self.kb_search_tools.append(PRIOR_SEARCH_TOOL)
 
+        self.prior_knowledge = self._get_prior_knowledge(self.structured_problem)
+
         prompt_files = {
             "critic_prompt": "critic_prompt.txt",
             "critic_system_prompt": "critic_system_prompt.txt",
@@ -81,6 +84,8 @@ class SupervisorOrchestrator:
             "supervisor_system_prompt": "supervisor_system_prompt.txt",
             "theoretician_prompt": "theoretician_prompt.txt",
             "theoretician_system_prompt": "theoretician_system_prompt.txt",
+            "promoter_prompt": "promoter_prompt.txt",
+            "promoter_system_prompt": "promoter_system_prompt.txt",
         }
         for attr, filename in prompt_files.items():
             setattr(self, attr, self._load_prompt(filename))
@@ -118,6 +123,42 @@ class SupervisorOrchestrator:
                 initializer=_init_worker,
             )
 
+    def _get_prior_knowledge(self, structured_problem) -> str:
+        if not self.landau_prior_enabled:
+            return ""
+        query = (
+            structured_problem.get("task_description")
+            or structured_problem.get("description")
+            or structured_problem.get("topic")
+            or ""
+        )
+        if not query.strip():
+            return ""
+        try:
+            retriever = self._get_prior_retriever()
+            results = retriever.retrieve(query=query, top_k=3)
+            if not results:
+                return ""
+            blocks: List[str] = []
+            for i, item in enumerate(results, 1):
+                source = item.get("source", {}) or {}
+                locator = item.get("locator", {}) or {}
+                context = item.get("parent_text") or item.get("text", "")
+                block_lines = [
+                    f"[Prior Reference {i}]",
+                    f"title={source.get('title', '')}",
+                    f"citation={item.get('citation', '')}",
+                    f"chapter:{locator.get('chapter', '')} section:{locator.get('section', '')}",
+                    f"content={context}",
+                ]
+                blocks.append("\n".join(block_lines))
+            prior_text = "\n\n".join(blocks)
+            print(f"[Supervisor] Prior knowledge retrieved ({len(results)} references).")
+            return prior_text
+        except Exception as e:
+            print(f"[Supervisor] prior knowledge retrieval failed: {e}")
+            return ""
+
     def _load_prompt(self, filename: str) -> str:
         path = self.prompts_path / filename
         with open(path, "r", encoding="utf-8") as f:
@@ -132,6 +173,9 @@ class SupervisorOrchestrator:
             dispatch = self._resolve_dispatch(selected_node)
             if dispatch.get("stop_search", False):
                 break
+                
+            if dispatch.get("node_type") == "draft" and selected_node.is_compressed:
+                selected_node.experience = []
 
             selected_node.selected_round = self.round_counter
             new_nodes = self._expand_and_simulate_nodes(
@@ -162,9 +206,12 @@ class SupervisorOrchestrator:
         return summary
 
     def _resolve_dispatch(self, node: MCTSNode) -> Dict[str, Any]:
+
+        hcc_context = self.tree.get_context_for_node(node)
+
         supervisor_raw = ""
         try:
-            supervisor_raw = self._call_supervisor(node) or ""
+            supervisor_raw = self._call_supervisor(node, hcc_context=hcc_context) or ""
         except Exception:
             supervisor_raw = ""
             print("[Supervisor] call failed.")
@@ -215,8 +262,33 @@ class SupervisorOrchestrator:
             "description": description,
             "supervisor_dispatch": supervisor_dispatch,
         }
+    def _call_promoter(self, node: MCTSNode) -> str:
 
-    def _call_supervisor(self, node: MCTSNode) -> str:
+        if not self.promoter_prompt:
+            return ""
+
+        promotion_info = {
+            "node_id": node.node_id,
+            "subtask_id": node.subtask_id,
+            "subtask_description": node.subtask_description,
+            "node_type": node.node_type,
+            "reward": node.reward,
+            "evaluation": node.evaluation, 
+            "raw_experience": node.experience
+        }
+
+        prompt = self.promoter_prompt.format(
+            node_context=json.dumps(promotion_info, ensure_ascii=False, indent=2)
+        )
+
+        response = call_model_without_tools(
+            system_prompt=self.promoter_system_prompt,
+            user_prompt=prompt,
+            config_path=self.config_path
+        )
+        return response
+
+    def _call_supervisor(self, node: MCTSNode, hcc_context: str) -> str:
         if not self.supervisor_prompt:
             return ""
 
@@ -228,7 +300,7 @@ class SupervisorOrchestrator:
                 "subtask_description": node.subtask_description,
                 "evaluation": node.evaluation,
                 "result": node.result,
-                "path_memory": self._compose_parent_memory(node),
+                "distilled_context": hcc_context,
             }
         except Exception:
             node_info = {}
@@ -346,8 +418,9 @@ class SupervisorOrchestrator:
                     "expected_output": subtask.get("expected_output"),
                 },
                 "task_dir": self.task_dir,
-                "path_memory": self._compose_parent_memory(parent),
+                "hcc_context": self.tree.get_context_for_node(parent),
                 "library_enabled": self.landau_library_enabled,
+                "prior_knowledge": self.prior_knowledge,
             }
             print(
                 f"[Supervisor] "
@@ -379,6 +452,7 @@ class SupervisorOrchestrator:
 
             try:
                 node_output = future.result()
+                child_node.experience = [{"step": "simulation", "content": node_output}]
             except Exception as e:
                 child_node.status = "failed"
                 child_node.result = {"error": str(e)}
@@ -391,7 +465,6 @@ class SupervisorOrchestrator:
                     "opinion": str(e),
                 }
                 child_node.reward = 0.0
-                child_node.memory = self._compose_node_memory(child_node, child_node.evaluation)
                 child_node.backpropagate(0.0)
                 continue
 
@@ -409,12 +482,15 @@ class SupervisorOrchestrator:
             child_node.evaluation = evaluation
             reward = self._extract_reward(evaluation)
             child_node.reward = reward
+
+            child_node.knowledge = self._call_promoter(child_node)
+            child_node.is_compressed = True
+                
             print(
                 f"[Critic] "
                 f"(node_id={child_node.node_id} subtask_id={child_node.subtask_id} node_type={child_node.node_type}) "
                 f"evaluation completed decision={evaluation.get('decision', '')} reward={reward} 🧪"
             )
-            child_node.memory = self._compose_node_memory(child_node, evaluation)
             child_node.status = "completed"
             child_node.backpropagate(reward)
 
@@ -464,7 +540,20 @@ class SupervisorOrchestrator:
             )
             if return_format == "json":
                 return results
-            return retriever.format_for_llm(results)
+            blocks: List[str] = []
+            for i, item in enumerate(results, 1):
+                source = item.get("source", {}) or {}
+                locator = item.get("locator", {}) or {}
+                context = item.get("parent_text") or item.get("text", "")
+                block_lines = [
+                    f"[Prior Reference {i}]",
+                    f"title={source.get('title', '')}",
+                    f"citation={item.get('citation', '')}",
+                    f"chapter:{locator.get('chapter', '')} section:{locator.get('section', '')}",
+                    f"content={context}",
+                ]
+                blocks.append("\n".join(block_lines))
+            return "\n\n".join(blocks)
         except Exception as e:
             return f"[prior_search] failed: {e}"
 
@@ -773,7 +862,7 @@ class SupervisorOrchestrator:
                 "result": node.result,
                 "reward": node.reward,
                 "visits": node.visits,
-                "memory": node.memory,
+                "memory": node.knowledge,
                 "log_path": node.log_path,
                 "supervisor_dispatch": node.supervisor_dispatch,
                 "critic_feedback": node.evaluation,
@@ -844,7 +933,7 @@ class SupervisorOrchestrator:
                     "visits": node.visits,
                     "status": node.status,
                     "created_by": node.created_by,
-                    "memory": node.memory,
+                    "memory": node.knowledge,
                     "theoretician_output": node.theoretician_output,
                     "supervisor_dispatch": node.supervisor_dispatch or {},
                     "critic_feedback": node.evaluation or {},
@@ -896,26 +985,6 @@ class SupervisorOrchestrator:
             return float(value) if value is not None else 0.0
         except Exception:
             return 0.0
-
-    def _compose_parent_memory(self, parent: Optional[MCTSNode]) -> str:
-        if parent is None:
-            return ""
-        path_nodes = self._get_path_nodes(parent)
-        summaries: List[str] = []
-        for node in path_nodes:
-            summary = self._to_natural_text((node.evaluation or {}).get("summary"))
-            if summary:
-                summaries.append(summary)
-        return "\n".join(summaries)
-
-    def _compose_node_memory(self, node: MCTSNode, critic_feedback: Dict[str, Any]) -> str:
-        summary = self._to_natural_text(
-            critic_feedback.get("summary")
-            or critic_feedback.get("opinion")
-            or critic_feedback.get("analysis")
-            or ""
-        )
-        return summary
 
     def _subtask_brief(self, subtask: Any) -> str:
         if isinstance(subtask, dict):

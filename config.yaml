@@ -35,8 +35,10 @@ landau:
   workflow_enabled: true
   workflow: "LANDAU/workflow"
 
-  prior_enabled: false
+  prior_enabled: true
   prior: "LANDAU/prior"
+
+  wisdom_save_enabled: true
 
 visualization:
   enabled: true

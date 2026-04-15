@@ -56,6 +56,7 @@ class Theoretician:
         subtask_description: str,
         path_memory: str | None = None,
         node_metadata: Dict[str, Any] | None = None,
+        prior_knowledge: str | None = None,
     ) -> Dict[str, Any]:
 
         output_dir = str(node_metadata.get("output_dir", "")) if node_metadata else ""
@@ -66,6 +67,9 @@ class Theoretician:
             node_metadata=json.dumps(node_metadata or {}, ensure_ascii=False),
             path=output_dir,
         )
+
+        if prior_knowledge:
+            prompt = f"## Prior Knowledge (Reference Materials)\n{prior_knowledge}\n\n{prompt}"
 
         tools = THEORETICIAN_CORE_TOOLS + (LIBRARY_TOOLS if self.library_enabled else [])
         tool_functions = {
@@ -138,8 +142,9 @@ def run_theo_node(payload: Dict[str, Any],config_path:str = 'config.yaml') -> Di
 
         result = theoretician.solve(
             subtask_description=description,
-            path_memory=payload.get("path_memory", payload.get("parent_memory", "")),
+            path_memory=payload.get("hcc_context", payload.get("path_memory", "")),
             node_metadata=node_metadata,
+            prior_knowledge=payload.get("prior_knowledge", ""),
         )
         print(
             f"[Theoretician] "

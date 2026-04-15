@@ -38,7 +38,11 @@ class MCTSNode:
     supervisor_dispatch: Optional[Dict[str, Any]] = None
     supervisor_feedback: Optional[Dict[str, Any]] = None
     theoretician_output: Optional[Any] = None
-    memory: str = ""
+    # memory
+    experience: List[Dict[str, Any]] = field(default_factory=list)
+    knowledge: str = ""
+    is_compressed: bool = False
+
     selected_round: Optional[int] = None
     log_path: Optional[str] = None
 
@@ -102,7 +106,26 @@ class MCTSNode:
         current: Optional["MCTSNode"] = self
         while current is not None:
             current.update_stats(reward)
+            if reward >= 0.8 and current != self:
+                self._apply_cognitive_reinforcement(source=self, target=current)
             current = current.parent
+
+    def _apply_cognitive_reinforcement(self, source: "MCTSNode", target: "MCTSNode"):
+        if not source.knowledge:
+            return
+
+        verification_tag = f"[Verified by Node {source.node_id}]"
+
+        if verification_tag not in (target.knowledge or ""):
+            new_insight = f"\n{verification_tag}: {source.knowledge}"
+
+            if not target.knowledge:
+                target.knowledge = f"Initial hypothesis confirmed. {new_insight}"
+            else:
+                combined = target.knowledge + new_insight
+                target.knowledge = combined[-3000:]
+
+            target.is_compressed = True
 
     def get_depth(self) -> int:
         depth = 0
@@ -120,7 +143,28 @@ class MCTSNode:
 
     def node_id_number(self) -> int:
         return int(self.node_id)
+    
+    def get_hcc_context(self) -> str:
+        context_segments = []
 
+        ancestors = []
+        curr = self.parent
+        while curr:
+            ancestors.insert(0,curr)
+            curr = curr.parent
+
+        for anc in ancestors:
+            if anc.knowledge:
+                context_segments.append((f"history step (Node {anc.node_id}): {anc.knowledge}"))
+
+        if self.experience:
+            raw_details = "\n".join([str(e) for e in self.experience])
+            context_segments.append((f"current node details (Node {self.node_id}): \n{raw_details}"))
+        elif self.knowledge:
+            context_segments.append((f"current node details (Node {self.node_id}): \n{self.knowledge}"))
+
+        return "\n\n".join(context_segments)
+    
     def to_dict(self) -> Dict[str, Any]:
         return {
             "node_id": self.node_id,
@@ -130,6 +174,8 @@ class MCTSNode:
             "visits": self.visits,
             "reward": self.reward,
             "average_reward": self.average_reward,
+            "l2_knowledge": self.knowledge,
+            "l1_size": len(self.experience),
             "children_count": len(self.children),
             "has_result": self.result is not None,
         }
@@ -138,7 +184,7 @@ class MCTSNode:
 class MCTSTree:
     """MCTS 搜索树管理器。"""
 
-    def __init__(self, root_subtask_id: int, root_description: str):
+    def __init__(self, root_subtask_id: int, root_description: str, prior_knowlege=None):
         self.root = MCTSNode(
             subtask_id=root_subtask_id,
             node_id=0,
@@ -150,6 +196,8 @@ class MCTSTree:
         self.nodes: Dict[int, MCTSNode] = {self.root.node_id: self.root}
         self.subtask_roots: Dict[int, MCTSNode] = {root_subtask_id: self.root}
 
+        self.prior_knowlege=prior_knowlege
+
     def get_node(self, node_id: int) -> Optional[MCTSNode]:
         return self.nodes.get(node_id)
 
@@ -160,6 +208,51 @@ class MCTSTree:
         self.nodes[node.node_id] = node
         if node.subtask_id not in self.subtask_roots:
             self.subtask_roots[node.subtask_id] = node
+
+    def _get_best_path(self) -> List[MCTSNode]:
+        path = []
+        curr = self.root
+        while curr.children:
+            curr = max(curr.children, key=lambda c: c.average_reward)
+            path.append(curr)
+        return path
+
+
+    def get_context_for_node(self, node: MCTSNode) -> str:
+        path = []
+        curr = node
+        while curr:
+            path.insert(0, curr)
+            curr = curr.parent
+        
+        hcc_segments = []
+
+        peers = [
+            n for n in self.get_all_nodes()
+            if n.subtask_id == node.subtask_id and n.node_id != node.node_id and n not in path
+        ]
+        
+        peer_insights = []
+        for p_node in peers:
+            if p_node.is_compressed and p_node.knowledge:
+                status = "SUCCESS" if p_node.reward > 0.8 else "FAILED/LIMITATION"
+                peer_insights.append(f"- Peer Node {p_node.node_id} ({status}): {p_node.knowledge}")
+        
+        if peer_insights:
+            hcc_segments.append("### [L2 - Peer Insights (Parallel Branches)]\n" + "\n".join(peer_insights[:3]))
+
+        hcc_segments.append("### [L1/L2 - Ancestry & Current Node Details]")
+        for path_node in path:
+            is_target = (path_node.node_id == node.node_id)
+            
+            if is_target:
+                details = "\n".join([str(e) for e in path_node.experience]) if path_node.experience else "No raw experience logs available."
+                hcc_segments.append(f">> Target Node {path_node.node_id} (Active):\n{details}")
+            else:
+                summary = path_node.knowledge or f"Subtask: {path_node.subtask_description}"
+                hcc_segments.append(f"-> Ancestor Node {path_node.node_id}: {summary}")
+
+        return "\n\n".join(hcc_segments)
 
     def selection(self, exploration_constant: float = 1.414) -> MCTSNode:
         """Selection phase: walk from root with UCB1 until leaf."""

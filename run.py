@@ -76,6 +76,7 @@ def main(config_path: str = "config.yaml"):
     library_enabled = bool(landau_cfg.get("library_enabled", True))
     workflow_enabled = bool(landau_cfg.get("workflow_enabled", True))
     prior_enabled = bool(landau_cfg.get("prior_enabled", True))
+    wisdom_save_enabled = bool(landau_cfg.get("wisdom_save_enabled", False))
     skills_cfg = cfg.get("skills", {})
     skills_enabled = bool(skills_cfg.get("enabled", True))
 
@@ -134,6 +135,22 @@ def main(config_path: str = "config.yaml"):
 
     mcts_result = supervisor.run()
     trajectory = mcts_result.get("trajectory", []) or []
+
+    # L3 Wisdom accumulation
+    if wisdom_save_enabled and prior_enabled:
+        try:
+            from LANDAU.prior.wisdom_store import WisdomStore
+            ws = WisdomStore(prior_root, config_path=config_path)
+            ws.save(
+                structured_problem=structured_problem,
+                trajectory=trajectory,
+                completed_subtasks=mcts_result.get("completed_subtasks", []),
+                task_name=task_name,
+            )
+        except Exception as e:
+            print(f"[Wisdom] Failed to save wisdom: {e}")
+    elif wisdom_save_enabled and not prior_enabled:
+        print("[Wisdom] Skipped: prior_enabled is false")
 
     summarizer = TrajectorySummarizer(prompts_path="prompts/",config_path=config_path)
     summary_md_path = task_dir / "summary.md"
