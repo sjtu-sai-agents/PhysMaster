@@ -14,6 +14,9 @@ from utils.skill_loader import resolve_skill_roots
 
 
 def load_config(path: str = "config.yaml") -> Dict[str, Any]:
+    """Read and parse the YAML config file. All pipeline behavior is
+    controlled by sections in this file: pipeline, clarifier, landau,
+    mcts, skills, visualization, llm."""
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"Config not found: {path}")
@@ -21,19 +24,21 @@ def load_config(path: str = "config.yaml") -> Dict[str, Any]:
         return yaml.safe_load(f)
 
 def get_task_name(structured_problem) -> str:
+    """Derive a filesystem-safe task name from the contract. Uses
+    instruction_filename first, falls back to topic."""
     raw_name = str(
         structured_problem.get("instruction_filename")
         or structured_problem.get("topic")
     )
+    # Sanitize: keep only alphanumeric, dot, underscore, dash
     task_name = "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(raw_name))
     return task_name
 
 
 def clarify_query(query_path: str, clr_cfg, workflow_enabled: bool = True, config_path:str = "config.yaml") -> Dict[str, Any]:
-    """
-    兼容 main() 里的调用：
-        structured_problem, task_dir = clarify_query(query_path, clarifier_cfg)
-    """
+    """Read the query file, run it through the Clarifier LLM to produce
+    a structured contract, then save contract.json to the task directory.
+    Returns (structured_problem, task_dir, task_name)."""
     path = query_path
     with open(path, 'r', encoding='utf-8') as file:
         content = file.read()
@@ -47,14 +52,17 @@ def clarify_query(query_path: str, clr_cfg, workflow_enabled: bool = True, confi
     clr = Clarifier(clr_cfg, workflow_enabled=workflow_enabled, config_path=config_path)
     structured_problem = clr.run(content)
 
+    # Tag the contract with the source filename for traceability
     instruction_filename = Path(path).stem
     structured_problem["instruction_filename"] = instruction_filename
     task_name = get_task_name(structured_problem)
 
+    # Create the output directory for this task (e.g. outputs/task_name/)
     output_root = clr_cfg.get("output_path", "outputs")
     task_dir = Path(output_root) / task_name
     os.makedirs(task_dir, exist_ok=True)
 
+    # Persist the contract so Theoretician subprocesses can read it from disk
     with open(task_dir / "contract.json", "w", encoding="utf-8") as f:
         json.dump(structured_problem, f, ensure_ascii=False, indent=2)
     print(f"[Clarifier] Structured problem saved to: {task_dir / 'contract.json'}")
@@ -63,15 +71,19 @@ def clarify_query(query_path: str, clr_cfg, workflow_enabled: bool = True, confi
 
 
 def main(config_path: str = "config.yaml"):
+    """Orchestrate the full PhysMaster pipeline from config loading
+    through to summary generation and optional visualization."""
     print(f"config file path: {config_path}")
     cfg = load_config(config_path)
 
+    # ---- Extract config sections ----
     pipeline_cfg = cfg.get("pipeline", {})
     clarifier_cfg = cfg.get("clarifier", {})
     query_path = pipeline_cfg.get("query_file", "instructions/test.txt")
     output_root = pipeline_cfg.get("output_path", "outputs")
     clarifier_cfg["output_path"] = output_root
 
+    # ---- LANDAU feature flags ----
     landau_cfg = cfg.get("landau", {})
     library_enabled = bool(landau_cfg.get("library_enabled", True))
     workflow_enabled = bool(landau_cfg.get("workflow_enabled", True))
@@ -83,6 +95,7 @@ def main(config_path: str = "config.yaml"):
     mcts_cfg = cfg.get("mcts", {})
     vis_cfg = cfg.get("visualization",{})
 
+    # ---- Resolve LANDAU paths relative to project root ----
     project_root = Path(__file__).resolve().parent
     library_root = (project_root / landau_cfg.get("library", "LANDAU/library")).resolve()
     workflow_root = (
@@ -91,12 +104,15 @@ def main(config_path: str = "config.yaml"):
     ).resolve()
     prior_root = (project_root / landau_cfg.get("prior", "LANDAU/prior")).resolve()
 
+    # Pass the resolved workflow dir to the clarifier so it can find YAML files
     clarifier_cfg["workflow_dir"] = str(workflow_root)
 
+    # ---- Stage 1: Clarify the query into a structured contract ----
     structured_problem, task_dir, task_name = clarify_query(
         query_path, clarifier_cfg, workflow_enabled=workflow_enabled, config_path=config_path
     )
 
+    # ---- Log enabled features ----
     if library_enabled:
         print(f"[LANDAU] Library: {library_root}")
     else:
@@ -116,6 +132,7 @@ def main(config_path: str = "config.yaml"):
     else:
         print("[LANDAU] Prior: disabled")
 
+    # ---- Stage 2: MCTS search via Supervisor ----
     processes = pipeline_cfg.get("parallel_processes", 2)
     max_rounds = pipeline_cfg.get("max_rounds", 8)
 
@@ -136,6 +153,7 @@ def main(config_path: str = "config.yaml"):
     mcts_result = supervisor.run()
     trajectory = mcts_result.get("trajectory", []) or []
 
+    # ---- Stage 3 (optional): Distill L3 wisdom into the prior index ----
     # L3 Wisdom accumulation
     if wisdom_save_enabled and prior_enabled:
         try:
@@ -152,6 +170,7 @@ def main(config_path: str = "config.yaml"):
     elif wisdom_save_enabled and not prior_enabled:
         print("[Wisdom] Skipped: prior_enabled is false")
 
+    # ---- Stage 4: Generate markdown summary from the best trajectory ----
     summarizer = TrajectorySummarizer(prompts_path="prompts/",config_path=config_path)
     summary_md_path = task_dir / "summary.md"
     contract_for_summary = json.dumps(structured_problem, ensure_ascii=False, indent=2)
@@ -163,6 +182,7 @@ def main(config_path: str = "config.yaml"):
     summary_text = summary_md_path.read_text(encoding="utf-8")
     print("[Summrizer] Summary generated:", summary_md_path)
 
+    # ---- Stage 5 (optional): Generate interactive HTML tree visualization ----
     if vis_cfg.get("enabled",False):
         vis_path = task_dir / "visualization.html"
         generate_vis(

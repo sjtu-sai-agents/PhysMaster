@@ -10,6 +10,9 @@ from utils.skill_loader import build_skill_brief_prompt, load_skill_specs
 from utils.tool_schemas import LIBRARY_TOOLS, THEORETICIAN_CORE_TOOLS
 
 class Theoretician:
+    """The solver agent. Given a subtask description and accumulated context,
+    it calls the LLM with tool access to produce a physics solution."""
+
     def __init__(self, prompts_path: str = "prompts/", library_enabled: bool = True, config_path :str = 'config.yaml'):
         self.prompts_path = Path(prompts_path)
         self.library_enabled = bool(library_enabled)
@@ -24,6 +27,7 @@ class Theoretician:
         self.prompt_template = self.theoretician_prompt
 
     def _load_prompt(self, filename: str) -> str:
+        """Read a prompt template file from the prompts directory."""
         path = self.prompts_path / filename
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
@@ -58,7 +62,8 @@ class Theoretician:
         node_metadata: Dict[str, Any] | None = None,
         prior_knowledge: str | None = None,
     ) -> Dict[str, Any]:
-
+        """Run the LLM with tools to solve a single subtask. Returns the
+        raw LLM response string."""
         output_dir = str(node_metadata.get("output_dir", "")) if node_metadata else ""
 
         prompt = self.prompt_template.format(
@@ -68,6 +73,7 @@ class Theoretician:
             path=output_dir,
         )
 
+        # Prepend prior knowledge as reference material if available
         if prior_knowledge:
             prompt = f"## Prior Knowledge (Reference Materials)\n{prior_knowledge}\n\n{prompt}"
 
@@ -80,6 +86,7 @@ class Theoretician:
             tool_functions["library_search"] = self._library_search
             tool_functions["library_parse"] = self._library_parse
 
+        # Wrap raw tool functions with logging so we can trace tool usage per node
         system_prompt = self.theoretician_system_prompt
         wrapped_tool_functions = {
             "Python_code_interpreter": lambda **kwargs: (
@@ -101,6 +108,7 @@ class Theoretician:
                 self._library_parse(**kwargs),
             )[1]
 
+        # Prepend a brief of all available skills so the LLM can decide to load any
         prompt = build_skill_brief_prompt() + "\n\n" + prompt
 
         response = call_model(
@@ -115,6 +123,9 @@ class Theoretician:
 
 
 def run_theo_node(payload: Dict[str, Any],config_path:str = 'config.yaml') -> Dict[str, Any]:
+        """Top-level function called by ProcessPoolExecutor in a subprocess.
+        Deserializes the payload, runs one Theoretician solve, and returns
+        the result dict with log_path."""
 
         depth = payload["depth"]
         node_id = int(payload["node_id"])
@@ -122,12 +133,14 @@ def run_theo_node(payload: Dict[str, Any],config_path:str = 'config.yaml') -> Di
         description = payload["subtask"]["description"]
         task_dir = payload["task_dir"]
 
+        # Re-read contract from disk to ensure subprocess has fresh data
         contract_file = Path(task_dir) / "contract.json"
         with contract_file.open(encoding="utf-8") as f:
             structured_problem = json.load(f)
 
         theoretician = Theoretician(library_enabled=bool(payload.get("library_enabled", True)),config_path=config_path)
 
+        # Each node gets its own output directory for generated files
         node_output_dir = Path(task_dir) / f"node_{node_id}"
         os.makedirs(node_output_dir, exist_ok=True)
 

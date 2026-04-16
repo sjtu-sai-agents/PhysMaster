@@ -6,6 +6,9 @@ from utils.llm_client import call_model_without_tools
 
 
 class TrajectorySummarizer:
+    """Final pipeline stage. Takes the best MCTS trajectory and asks the
+    LLM to produce a readable markdown summary of the solution."""
+
     def __init__(self, prompts_path: str = "prompts/",config_path:str = 'config.yaml'):
         self.prompts_path = Path(prompts_path)
         self.summarizer_prompt = self._load_prompt("summarizer_prompt.txt")
@@ -13,6 +16,7 @@ class TrajectorySummarizer:
         self.config_path = config_path
 
     def _load_prompt(self, filename: str) -> str:
+        """Read a prompt template from the prompts directory."""
         with open(self.prompts_path / filename, "r", encoding="utf-8") as f:
             return f.read()
 
@@ -22,6 +26,8 @@ class TrajectorySummarizer:
         task_description: str,
         trajectory: List[Dict[str, Any]],
     ) -> str:
+        """Generate a markdown summary via LLM. Falls back to a plain
+        template if the LLM call fails."""
         prompt = self.summarizer_prompt.format(
             task_description=task_description or "",
             trajectory=json.dumps(trajectory or [], ensure_ascii=False, indent=2),
@@ -55,6 +61,7 @@ class TrajectorySummarizer:
         task_description: str,
         trajectory: List[Dict[str, Any]],
     ) -> Path:
+        """Build the summary and write it to disk. Returns the output path."""
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         summary_md = self.build_summary_markdown(

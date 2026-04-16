@@ -13,6 +13,8 @@ INJECT_MARKER = "<!-- __DATA_INJECT__ -->"
 
 
 def _compute_tree_layout(nodes: list[dict[str, Any]], root_id: int = 0) -> dict[int, tuple[float, float]]:
+    """BFS over the node list to assign (x, y) coordinates for each node.
+    y is proportional to depth; x spreads siblings evenly at each level."""
     by_id = {int(n["node_id"]): n for n in nodes}
     children_map: dict[int, list[int]] = {
         int(n["node_id"]): [int(c) for c in n.get("children", [])] for n in nodes
@@ -45,6 +47,9 @@ def _compute_tree_layout(nodes: list[dict[str, Any]], root_id: int = 0) -> dict[
 
 
 def _safe_short(value: Any, limit: int) -> str:
+    """Truncate text to `limit` chars, keeping head and tail with a
+    '[truncated]' marker in the middle. Prevents the JSON payload from
+    becoming too large for the browser."""
     text = "" if value is None else str(value)
     if len(text) <= limit:
         return text
@@ -53,6 +58,8 @@ def _safe_short(value: Any, limit: int) -> str:
 
 
 def _serialize_tree(tree: MCTSTree) -> list[dict[str, Any]]:
+    """Walk the MCTSTree and produce a list of plain dicts suitable for
+    JSON serialization and the HTML template."""
     nodes_payload: list[dict[str, Any]] = []
     for node in sorted(tree.get_all_nodes(), key=lambda n: int(n.node_id)):
         node_id = int(getattr(node, "node_id", 0))
@@ -108,6 +115,8 @@ def build_payload(
     subtasks: Any = None,
     summary: str = "",
 ) -> dict[str, Any]:
+    """Combine node data with layout coordinates and edge lists into
+    the final JSON payload that the HTML template consumes."""
     coords = _compute_tree_layout(nodes, root_id=root_id)
 
     edges: list[list[int]] = []
@@ -142,6 +151,8 @@ def build_mcts_html(
     subtasks: Any = None,
     summary: str = "",
 ) -> str:
+    """Build the payload and inject it into the HTML template as a
+    window.__PHY_MCTS_DATA__ global variable."""
     payload = build_payload(
         nodes=nodes,
         root_id=root_id,
@@ -185,6 +196,8 @@ def generate_vis(
     subtasks: Any = None,
     summary: str = "",
 ) -> Path:
+    """High-level entry: serialize the tree and write a self-contained
+    HTML visualization file."""
     nodes = _serialize_tree(tree)
     root_id = int(getattr(tree.root, "node_id", 0))
     return write_mcts_html(

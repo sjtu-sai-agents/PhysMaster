@@ -62,6 +62,11 @@ def _tokenize(text: str) -> List[str]:
 
 
 class PriorRetriever:
+    """Hybrid dense+sparse retriever over the prior knowledge base.
+    Uses FAISS for dense search, BM25 for sparse, RRF to fuse them,
+    and a weighted reranker on top. Optionally generates a HyDE
+    hypothetical document to improve recall."""
+
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"[*] Loading retrieval model ({self.device})...")
@@ -104,6 +109,7 @@ class PriorRetriever:
 
 
     def _load_knowledge(self) -> Dict[str, Dict[str, Any]]:
+        """Read all child chunks from chunks.jsonl into a dict keyed by chunk_id."""
         kb: Dict[str, Dict[str, Any]] = {}
         with self.knowledge_path.open("r", encoding="utf-8") as f:
             for line in f:
@@ -115,6 +121,7 @@ class PriorRetriever:
         return kb
 
     def _load_parent_knowledge(self) -> Dict[str, Dict[str, Any]]:
+        """Read parent chunks. These provide broader context around each child chunk."""
         kb: Dict[str, Dict[str, Any]] = {}
         if not self.parent_knowledge_path.exists():
             print("[!] Warning: parent_chunks.jsonl not found, parent context disabled.")
@@ -146,6 +153,8 @@ class PriorRetriever:
             return json.load(f) or {}
 
     def _load_or_rebuild_index(self):
+        """Load the FAISS index if it exists and is consistent with the
+        current knowledge base. Otherwise rebuild from scratch."""
         meta = self._load_index_meta()
         needs_rebuild = (
             not self.faiss_path.exists()
@@ -163,6 +172,8 @@ class PriorRetriever:
         return index
 
     def _rebuild_dense_index(self):
+        """Re-encode all chunks and write a fresh FAISS IndexFlatIP index,
+        id_map.jsonl, and index_meta.json."""
         texts = [self.knowledge_base[cid].get("context_prefix", "") + self.knowledge_base[cid]["text"] for cid in self.knowledge_base]
         chunk_ids = list(self.knowledge_base.keys())
         embs = self.model.encode(texts, show_progress_bar=True, normalize_embeddings=True)
@@ -192,6 +203,7 @@ class PriorRetriever:
 
 
     def _build_sparse_stats(self):
+        """Pre-compute BM25 statistics: document lengths and term frequencies."""
         self.doc_len: Dict[str, int] = {}
         self.doc_freq: Dict[str, int] = {}
         total_len = 0
@@ -206,6 +218,8 @@ class PriorRetriever:
 
 
     def _generate_hyde_document(self, query: str) -> str | None:
+        """HyDE: ask a small LLM to write a hypothetical passage answering
+        the query, then embed that passage for denser semantic matching."""
         if not self._hyde_client:
             return None
         try:
@@ -223,6 +237,8 @@ class PriorRetriever:
 
 
     def _rewrite_query(self, query: str) -> List[str]:
+        """Expand the query with alias terms and normalization variants
+        so the retriever has more surface forms to match against."""
         tokens = _tokenize(query)
         variants = [query.strip()]
         expanded_terms: List[str] = []
@@ -239,6 +255,8 @@ class PriorRetriever:
 
     def _dense_search(self, query_variants: List[str], candidate_k: int,
                       hyde_doc: str | None = None) -> Dict[str, float]:
+        """Embed each query variant and optionally the HyDE doc, search
+        the FAISS index, return {chunk_id: max_similarity}."""
         scores: Dict[str, float] = {}
         prefix = CFG["embedding"].get("query_instruction", "")
 
@@ -269,6 +287,7 @@ class PriorRetriever:
 
 
     def _bm25_score(self, query_tokens: List[str], chunk_id: str) -> float:
+        """Compute the BM25 relevance score for one chunk against query tokens."""
         tokens = self._token_cache.get(chunk_id, [])
         if not tokens:
             return 0.0
@@ -291,6 +310,8 @@ class PriorRetriever:
         return score
 
     def _sparse_search(self, query_variants: List[str], candidate_k: int) -> Dict[str, float]:
+        """BM25-based sparse retrieval over all chunks. Returns top candidate_k
+        by score."""
         scores: Dict[str, float] = {}
         for variant in query_variants:
             query_tokens = _tokenize(variant)
@@ -338,6 +359,8 @@ class PriorRetriever:
     def _rerank(self, query: str, chunk_ids: List[str],
                 dense_scores: Dict[str, float],
                 sparse_scores: Dict[str, float]) -> List[str]:
+        """Score candidates by a weighted combination of dense, sparse,
+        token overlap, keyword overlap, and exact phrase match."""
         query_tokens = set(_tokenize(query))
         query_text = query.lower()
         norm_dense = self._normalize_scores(dense_scores)
@@ -370,6 +393,8 @@ class PriorRetriever:
         section_prefix: str | None = None,
         keywords: List[str] | None = None,
     ) -> List[str]:
+        """Post-retrieval filter: narrow results by source, chapter,
+        section prefix, or keyword presence."""
         filtered: List[str] = []
         keyword_tokens = {k.lower() for k in (keywords or [])}
         source_set = set(source_ids or [])
@@ -402,6 +427,9 @@ class PriorRetriever:
         keywords: List[str] | None = None,
         rewrite_query: bool = True,
     ) -> List[Dict[str, Any]]:
+        """Main retrieval entry. Runs dense + sparse search, fuses with RRF,
+        applies metadata filters, reranks, deduplicates by parent chunk,
+        and enforces source diversity before returning top_k results."""
         query_variants = self._rewrite_query(query) if rewrite_query else [query]
         use_hyde = CFG["hyde"]["enabled"] and self._hyde_client is not None
 
@@ -482,6 +510,8 @@ class PriorRetriever:
         return results
     
     def format_for_llm(self, results: List[Dict[str, Any]]) -> str:
+        """Format retrieval results into a readable text block suitable
+        for injecting into an LLM prompt."""
         if not results:
             return ""
         blocks: List[str] = []

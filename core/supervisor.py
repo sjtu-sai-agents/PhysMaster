@@ -26,6 +26,8 @@ _GLOBAL_POOL: ProcessPoolExecutor | None = None
 
 
 def _init_worker():
+    """Called once per subprocess to mark it as initialized. Prevents
+    double-init when the pool reuses a worker process."""
     global _WORKER_INIT
     if "_WORKER_INIT" in globals():
         return
@@ -33,7 +35,10 @@ def _init_worker():
 
 
 class SupervisorOrchestrator:
-    """MCTS Supervisor，负责搜索、调度、评估与轨迹汇总。"""
+    """MCTS-based orchestrator. Drives the search loop: select a leaf node,
+    ask the Supervisor LLM for dispatch instructions, expand children via
+    Theoretician workers in parallel, evaluate with Critic, backpropagate
+    rewards, and optionally beam-prune."""
 
     def __init__(
         self,
@@ -64,19 +69,23 @@ class SupervisorOrchestrator:
         self.config_path = config_path
 
         if self.landau_prior_enabled and PriorRetriever is None:
+            # faiss not installed: gracefully degrade
             print("[Supervisor] prior retriever unavailable; disable LANDAU prior search.")
             self.landau_prior_enabled = False
 
         self._prior_retriever: Optional[PriorRetriever] = None
         self._library_retriever: Optional[LibraryRetriever] = None
+        # Register tool schemas the Supervisor and Critic can invoke mid-conversation
         self.kb_search_tools: List[Dict[str, Any]] = []
         if self.landau_library_enabled:
             self.kb_search_tools.extend([LIBRARY_SEARCH_TOOL, LIBRARY_PARSE_TOOL])
         if self.landau_prior_enabled:
             self.kb_search_tools.append(PRIOR_SEARCH_TOOL)
 
+        # Pre-fetch prior knowledge for the whole task so every node can reference it
         self.prior_knowledge = self._get_prior_knowledge(self.structured_problem)
 
+        # Load all 8 prompt templates (system+user for each of 4 agents)
         prompt_files = {
             "critic_prompt": "critic_prompt.txt",
             "critic_system_prompt": "critic_system_prompt.txt",
@@ -90,12 +99,16 @@ class SupervisorOrchestrator:
         for attr, filename in prompt_files.items():
             setattr(self, attr, self._load_prompt(filename))
 
+        # Normalize subtask list from the contract (handles various key names and formats)
         self.subtasks = self._build_subtasks()
 
+        # Create the search tree with a virtual root that acts as the starting point
         self.tree = MCTSTree(
             root_subtask_id=0,
             root_description="Virtual Root",
         )
+        # Virtual root is pre-configured as "completed" so the first _select_leaf_node
+        # returns it and triggers the initial expansion
         self.tree.root.node_type = "virtual"
         self.tree.root.status = "completed_expended"
         self.tree.root.subtask_description = "Virtual Root"
@@ -115,8 +128,10 @@ class SupervisorOrchestrator:
         self.node_id_counter = 1
         self.round_counter = 0
 
+        # Global pool is shared across supervisor instances to avoid spawn overhead
         global _GLOBAL_POOL
         if _GLOBAL_POOL is None:
+            # spawn avoids CUDA fork issues in child processes
             mp.set_start_method("spawn", force=True)
             _GLOBAL_POOL = ProcessPoolExecutor(
                 max_workers=self.processes,
@@ -124,6 +139,8 @@ class SupervisorOrchestrator:
             )
 
     def _get_prior_knowledge(self, structured_problem) -> str:
+        """Retrieve top-3 prior references from the FAISS index at startup.
+        These are included in every Theoretician prompt as background context."""
         if not self.landau_prior_enabled:
             return ""
         query = (
@@ -165,6 +182,8 @@ class SupervisorOrchestrator:
             return f.read()
 
     def run(self) -> Dict[str, Any]:
+        """Main MCTS loop. Returns a summary dict with the best trajectory,
+        completed subtasks, node count, round count, and tree statistics."""
         while self.round_counter < self.max_rounds:
             selected_node = self._select_leaf_node()
             if selected_node is None:
@@ -189,9 +208,11 @@ class SupervisorOrchestrator:
             )
             self.round_counter += 1
 
+            # Early termination: all subtasks completed along one path
             if self._find_full_completion_path() is not None:
                 break
 
+        # After the loop, extract the best trajectory from the tree
         best_path_nodes = self._find_best_path_nodes()
         completed_subtasks = self._collect_completed_subtasks()
         trajectory = self._serialize_trajectory(best_path_nodes)
@@ -206,7 +227,8 @@ class SupervisorOrchestrator:
         return summary
 
     def _resolve_dispatch(self, node: MCTSNode) -> Dict[str, Any]:
-
+        """Ask the Supervisor LLM what to do next for this node, then figure
+        out the target subtask, node type, and expansion count."""
         hcc_context = self.tree.get_context_for_node(node)
 
         supervisor_raw = ""
@@ -216,14 +238,17 @@ class SupervisorOrchestrator:
             supervisor_raw = ""
             print("[Supervisor] call failed.")
 
+        # Parse JSON from the Supervisor's free-text response
         supervisor_payload = self._extract_json_object(supervisor_raw)
         if not isinstance(supervisor_payload, dict):
             supervisor_payload = {}
 
+        # Decide node_type: virtual root always drafts, otherwise follow critic decision
         default_decision = "to_redraft" if node.node_type == "virtual" else "to_revise"
         decision = str((node.evaluation or {}).get("decision", default_decision)).strip().lower()
         default_node_type = "draft" if node.node_type == "virtual" else self._decision_to_node_type(decision)
 
+        # If no more subtasks left, stop the search
         default_subtask_id = self._default_next_subtask_id(node, decision)
         if default_subtask_id is None:
             return {"stop_search": True}
@@ -263,6 +288,10 @@ class SupervisorOrchestrator:
             "supervisor_dispatch": supervisor_dispatch,
         }
     def _call_promoter(self, node: MCTSNode) -> str:
+        """Distill L1 raw experience into L2 compressed knowledge.
+        The Promoter LLM reads the node's experience and evaluation,
+        then produces a concise summary that will be stored as node.knowledge
+        and used in the HCC context for future nodes."""
 
         if not self.promoter_prompt:
             return ""
@@ -289,6 +318,10 @@ class SupervisorOrchestrator:
         return response
 
     def _call_supervisor(self, node: MCTSNode, hcc_context: str) -> str:
+        """Ask the Supervisor LLM to decide what subtask to work on next
+        and whether to draft or revise. The supervisor sees the full
+        structured problem plus the HCC context built from the tree.
+        It can also call library/prior search tools mid-conversation."""
         if not self.supervisor_prompt:
             return ""
 
@@ -320,6 +353,8 @@ class SupervisorOrchestrator:
         return response
 
     def _call_critic(self, node: MCTSNode) -> Dict[str, Any]:
+        """Evaluate a Theoretician's output. Returns decision, verdict,
+        reward score, and textual analysis."""
         result_data = node.result or ""
         node_output = self._extract_json_object(result_data) if isinstance(result_data, str) else (result_data or {})
         if not isinstance(node_output, dict):
@@ -337,15 +372,15 @@ class SupervisorOrchestrator:
         )
         prompt = self.critic_prompt.format(result=core_results, context=context_str)
 
+        # Critic can also use library/prior search to verify the solution
         response = call_model(
             system_prompt=self.critic_system_prompt,
             user_prompt=prompt,
             tools=self.kb_search_tools,
             tool_functions=self._kb_tool_functions("Critic", node),
             config_path=self.config_path
-        )
-
-        parsed = self._extract_json_object(response)
+        )                                                                                                                                                                                                                                                                                                                                     
+        parsed = self._extract_json_object(response) 
         if not isinstance(parsed, dict):
             parsed = {}
 
@@ -385,6 +420,8 @@ class SupervisorOrchestrator:
         supervisor_dispatch: Dict[str, Any],
         round_index: int,
     ) -> List[MCTSNode]:
+        """Spawn `count` Theoretician workers in parallel, collect their
+        outputs, run Critic + Promoter on each, then backpropagate rewards."""
         if parent and parent.status == "completed_closed":
             return []
 
@@ -483,6 +520,7 @@ class SupervisorOrchestrator:
             reward = self._extract_reward(evaluation)
             child_node.reward = reward
 
+        # After critic: promote L1 experience into L2 compressed knowledge
             child_node.knowledge = self._call_promoter(child_node)
             child_node.is_compressed = True
                 
@@ -494,6 +532,7 @@ class SupervisorOrchestrator:
             child_node.status = "completed"
             child_node.backpropagate(reward)
 
+        # Mark parent as expanded so future selection skips it
         if new_nodes:
             self._apply_beam_pruning(parent.get_depth() + 1)
             if parent.status not in {"completed_closed", "failed"}:
@@ -526,6 +565,8 @@ class SupervisorOrchestrator:
         keywords: List[str] | None = None,
         rewrite_query: bool = True,
     ):
+        """Tool function: search the FAISS-backed prior knowledge base.
+        Called by the Supervisor or Critic during their LLM tool loops."""
         try:
             retriever = self._get_prior_retriever()
             results = retriever.retrieve(
@@ -558,6 +599,7 @@ class SupervisorOrchestrator:
             return f"[prior_search] failed: {e}"
 
     def _library_search(self, query: str, top_k: int = 5):
+        """Tool function: search external web/library sources."""
         try:
             retriever = self._get_library_retriever()
             results = retriever.search(query=query, top_k=int(top_k) if top_k is not None else 5)
@@ -566,6 +608,7 @@ class SupervisorOrchestrator:
             return f"[library_search] failed: {e}"
 
     def _library_parse(self, link: str, user_prompt: str, llm: str | None = None):
+        """Tool function: read and analyze a specific URL or PDF link."""
         try:
             retriever = self._get_library_retriever()
             results = retriever.parse(link=link, user_prompt=user_prompt, llm=llm)
@@ -581,6 +624,8 @@ class SupervisorOrchestrator:
         )
 
     def _kb_tool_functions(self, agent_label: str, node: MCTSNode) -> Dict[str, Any]:
+        """Build a dict of callable tool functions for library/prior search,
+        wired with logging for the given agent and node."""
         functions: Dict[str, Any] = {}
         if self.landau_library_enabled:
             functions["library_search"] = lambda **kwargs: (
@@ -598,8 +643,10 @@ class SupervisorOrchestrator:
             )[1]
         return functions
 
-    # Node selection / pruning
+    # --- Node selection / pruning ---
+
     def _select_leaf_node(self) -> Optional[MCTSNode]:
+        """UCB1-based leaf selection across all open nodes."""
         if not self.tree.root.children:
             return self.tree.root
 
@@ -627,6 +674,8 @@ class SupervisorOrchestrator:
         return selected
 
     def _apply_beam_pruning(self, depth: int):
+        """Close low-reward nodes at the given depth when they exceed
+        the active beam width. Keeps only the top-k by reward."""
         if self.active_beam_width <= 0:
             return
 
@@ -655,8 +704,11 @@ class SupervisorOrchestrator:
             if node.node_id not in keep:
                 node.status = "completed_closed"
 
-    # Subtask normalization
+    # --- Subtask normalization ---
+
     def _build_subtasks(self) -> List[Dict[str, Any]]:
+        """Normalize the sub-tasks from the structured problem into a
+        consistent list with sequential integer IDs."""
         subtasks_payload = (
             self.structured_problem.get("sub-tasks")
             or self.structured_problem.get("sub_tasks")
@@ -734,6 +786,8 @@ class SupervisorOrchestrator:
         return normalized
 
     def _default_next_subtask_id(self, node: MCTSNode, decision: str) -> Optional[int]:
+        """Determine which subtask to work on next. If the current subtask
+        is complete, advance to the next one in order; otherwise stay."""
         if not self.subtasks:
             return None
         if node.node_type == "virtual":
@@ -750,6 +804,8 @@ class SupervisorOrchestrator:
         return current_subtask_id
 
     def _extract_requested_subtask_id(self, payload: Dict[str, Any], fallback: int) -> int:
+        """Try to read the Supervisor's preferred subtask_id from its JSON
+        output. Fall back to the default if not present or invalid."""
         sid = self._to_int(payload.get("subtask_id"))
         if sid is not None and self._get_subtask_by_id(sid) is not None:
             return sid
@@ -774,7 +830,8 @@ class SupervisorOrchestrator:
                 return self.subtasks[next_idx] if next_idx < len(self.subtasks) else None
         return None
 
-    # Best trajectory
+    # --- Best trajectory extraction ---
+
     def _get_path_nodes(self, node: MCTSNode) -> List[MCTSNode]:
         path: List[MCTSNode] = []
         current: Optional[MCTSNode] = node
@@ -797,6 +854,7 @@ class SupervisorOrchestrator:
         return len(completed), completed
 
     def _find_full_completion_path(self) -> Optional[List[MCTSNode]]:
+        """Return a root-to-leaf path that completes ALL subtasks, or None."""
         total_subtasks = len(self.subtasks)
         if total_subtasks <= 0:
             return None
@@ -823,6 +881,8 @@ class SupervisorOrchestrator:
         )
 
     def _resolve_best_path(self) -> List[MCTSNode]:
+        """Fallback when no path completes all subtasks. Picks the path
+        that completed the most subtasks, breaking ties by total reward."""
         candidates = [n for n in self.tree.get_all_nodes() if n.node_type != "virtual" and n.visits > 0]
         if not candidates:
             return [self.tree.root]
@@ -839,6 +899,8 @@ class SupervisorOrchestrator:
         )
 
     def _find_best_path_nodes(self) -> List[MCTSNode]:
+        """First try to find a path that completes all subtasks; if none
+        exists, fall back to the best partial path."""
         full = self._find_full_completion_path()
         if full is not None:
             return full
@@ -849,6 +911,8 @@ class SupervisorOrchestrator:
         return self._serialize_trajectory(self._find_best_path_nodes())
 
     def _serialize_trajectory(self, path_nodes: List[MCTSNode]) -> List[Dict[str, Any]]:
+        """Convert a list of path nodes into a JSON-serializable trajectory,
+        skipping the virtual root."""
         if not path_nodes:
             return []
         return [
@@ -873,6 +937,7 @@ class SupervisorOrchestrator:
         ]
 
     def _collect_completed_subtasks(self) -> List[Dict[str, Any]]:
+        """Gather the best completed node per subtask across the entire tree."""
         best_by_subtask: Dict[int, MCTSNode] = {}
         for node in self.tree.get_all_nodes():
             if node.node_type == "virtual" or not node.is_subtask_complete():
@@ -911,8 +976,10 @@ class SupervisorOrchestrator:
             )
         return completed
 
-    # Visualization export
+    # --- Visualization export ---
+
     def serialize_nodes_for_visualization(self) -> List[Dict[str, Any]]:
+        """Dump all tree nodes into plain dicts for the HTML visualization."""
         payload: List[Dict[str, Any]] = []
         for node in self.tree.get_all_nodes():
             payload.append(
@@ -943,7 +1010,8 @@ class SupervisorOrchestrator:
             )
         return payload
 
-    # Helpers
+    # --- Helpers ---
+
     def _get_safe_name(self) -> str:
         instr_name = (
             self.structured_problem.get("instruction_filename")
@@ -956,6 +1024,8 @@ class SupervisorOrchestrator:
         return "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(instr_stem))
 
     def _get_expansion_count_by_node_type(self, node_type: str) -> int:
+        """Draft nodes expand by draft_expansion count, revise nodes
+        by revise_expansion count."""
         ntype = (node_type or "").lower()
         if ntype == "draft":
             return self.draft_expansion
@@ -964,6 +1034,8 @@ class SupervisorOrchestrator:
         return self.revise_expansion
 
     def _decision_to_node_type(self, decision: str) -> str:
+        """Map critic decision string to a node type.
+        to_redraft/complete -> draft, to_revise -> revise."""
         d = (decision or "").lower()
         if d in ("to_redraft", "complete"):
             return "draft"
@@ -1002,6 +1074,7 @@ class SupervisorOrchestrator:
         return str(subtask or "").strip()
 
     def _to_natural_text(self, value: Any) -> str:
+        """Recursively flatten nested dicts/lists into a readable string."""
         if value is None:
             return ""
         if isinstance(value, str):
@@ -1018,6 +1091,8 @@ class SupervisorOrchestrator:
         return str(value).strip()
 
     def _extract_json_object(self, text: Any) -> Any:
+        """Best-effort JSON extraction from LLM text. Tries raw parse,
+        then fenced code blocks, then first/last brace or bracket."""
         if text is None:
             return {}
         if isinstance(text, (dict, list)):

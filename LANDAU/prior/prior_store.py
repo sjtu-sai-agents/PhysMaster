@@ -105,7 +105,8 @@ def _unshield_abbreviations(text: str) -> str:
 
 
 def _split_sentences_physics(text: str) -> List[str]:
-    """Split *text* into sentences, respecting physics abbreviations and formulas."""
+    """Split text into sentences while respecting physics abbreviations
+    like 'Eq.', 'Fig.', 'et al.' and preserving display-math blocks."""
     math_blocks: List[str] = []
 
     def _stash_math(m: re.Match) -> str:
@@ -133,6 +134,10 @@ def _split_sentences_physics(text: str) -> List[str]:
 
 
 class PriorStore:
+    """Ingestion pipeline for the prior knowledge base. Converts source
+    PDFs/markdown/text into parent-child chunk pairs and builds a FAISS
+    dense index for retrieval."""
+
     def __init__(self, cfg: Dict | None = None):
         missing_deps = []
         if faiss is None:
@@ -250,6 +255,8 @@ class PriorStore:
         return list(dict.fromkeys(phrases + common))[:5]
 
     def _split_text_with_overlap(self, text: str, chunking_cfg: Dict) -> List[str]:
+        """Split text into chunks of max_chars with sentence-aware boundaries.
+        Adjacent chunks overlap by overlap_chars to preserve context."""
         clean_text = re.sub(r"\s+", " ", text or "").strip()
         if not clean_text:
             return []
@@ -302,7 +309,7 @@ class PriorStore:
         if current:
             chunks.append(current)
 
-        # Merge short chunks with neighbors (not just the tail)
+        # Merge short chunks with neighbors
         merged: List[str] = []
         for chunk in chunks:
             if merged and len(chunk) < min_chars:
@@ -320,11 +327,10 @@ class PriorStore:
         return merged
 
     def _identify_header_strict(self, text: str) -> Tuple[str | None, str, str, str]:
-        """Return (header_type, number_value, inferred_chapter, title_text).
-
-        *title_text* is the portion after the numeric prefix, e.g.
-        ``"1.2 Thermodynamics"`` → title_text = ``"Thermodynamics"``.
-        """
+        """Detect whether text is a chapter or section header by matching
+        leading numbers like '1.2' or 'Chapter 3'. Returns
+        (header_type, number_value, inferred_chapter, title_text).
+        title_text is the part after the numeric prefix."""
         clean_text = text.strip()
         sec_match = re.match(r"^(\d+(?:\.\d+)+)\s*(.*)", clean_text)
         if sec_match:
@@ -358,6 +364,9 @@ class PriorStore:
         return elements
 
     def _run_mineru_conversion(self, source_file: Path) -> Path | None:
+        """Run the MinerU PDF-to-JSON converter as a subprocess.
+        Returns the path to the content_list.json, or None on failure.
+        Skips conversion if the output already exists."""
         if not self.cfg["conversion"]["enabled"]:
             return None
 
@@ -485,7 +494,8 @@ class PriorStore:
         page_start: int, page_end: int,
         child_chunks: List[Dict], parent_chunks: List[Dict],
     ) -> None:
-        """Flush accumulated parent text: build parent chunks and child chunks."""
+        """Finalize accumulated section text into parent chunks, then
+        split each parent into child chunks with metadata and citation."""
         text = current_parent_text.strip()
         if not text:
             return
@@ -555,6 +565,9 @@ class PriorStore:
                 parent_chunk["child_chunk_ids"].append(chunk_id)
 
     def _build_chunks_from_elements(self, elements: List[Dict], fname: str, is_plain_text: bool) -> Tuple[List[Dict], List[Dict]]:
+        """Walk through parsed document elements, detect chapter/section
+        headers, accumulate body text, and flush into parent-child chunk
+        pairs at each section boundary."""
         real_title, real_authors = self._extract_paper_meta_concise(elements)
         id_prefix = self._get_id_prefix_from_filename(fname)
         year_match = re.search(r"\d{4}", id_prefix)
@@ -677,6 +690,8 @@ class PriorStore:
         return child_chunks, parent_chunks
 
     def process(self, target_path: str = "", reset_existing: bool = False):
+        """Run the full ingestion: gather source files, parse, chunk, and
+        persist new child/parent chunks to JSONL. Does not build the index."""
         self.new_chunks_data = []
         self.new_parent_chunks_data = []
         
@@ -759,6 +774,9 @@ class PriorStore:
         return chunk.get("context_prefix", "") + chunk.get("text", "")
 
     def build_index(self, incremental: bool = True):
+        """Encode all chunks with the embedding model and build or update
+        the FAISS IndexFlatIP. When incremental is True and the existing
+        index is compatible, only newly added chunks are embedded."""
         if not self.chunks_data:
             print("[!] No chunks available, skip FAISS index build.")
             return
@@ -857,6 +875,8 @@ class PriorStore:
         return np.asarray(embeddings, dtype="float32")
     
     def retrieve_with_parent(self, query: str, top_k: int = 5) -> List[Dict]:
+        """Quick retrieval that returns both child and parent chunk data.
+        Useful for testing the index without going through PriorRetriever."""
         if not self.faiss_path.exists():
             raise FileNotFoundError("FAISS index not found. Run build_index first.")
         

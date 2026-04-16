@@ -9,7 +9,8 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class MCTSNode:
-    """MCTS 搜索树节点。"""
+    """Single node in the MCTS search tree. Each node represents one
+    attempt at solving a subtask, either as a fresh draft or a revision."""
 
     subtask_id: int
     node_id: int
@@ -26,22 +27,23 @@ class MCTSNode:
     visits: int = 0
     total_reward: float = 0.0
     average_reward: float = 0.0
-    reward: float = 0.0
+    reward: float = 0.0          # latest reward from Critic
 
     # Tree links
     parent: Optional["MCTSNode"] = None
     children: List["MCTSNode"] = field(default_factory=list)
 
-    # Node artifacts
-    result: Optional[Any] = None
-    evaluation: Optional[Dict[str, Any]] = None
+    # Node artifacts produced during the solve
+    result: Optional[Any] = None               # Theoretician output
+    evaluation: Optional[Dict[str, Any]] = None  # Critic evaluation
     supervisor_dispatch: Optional[Dict[str, Any]] = None
     supervisor_feedback: Optional[Dict[str, Any]] = None
     theoretician_output: Optional[Any] = None
-    # memory
+
+    # HCC memory hierarchy: L1 raw experience, L2 distilled knowledge
     experience: List[Dict[str, Any]] = field(default_factory=list)
     knowledge: str = ""
-    is_compressed: bool = False
+    is_compressed: bool = False  # True after Promoter distills experience into knowledge
 
     selected_round: Optional[int] = None
     log_path: Optional[str] = None
@@ -51,13 +53,17 @@ class MCTSNode:
             self.node_id = 0
 
     def is_leaf(self) -> bool:
+        """A node with no children is a leaf in the tree."""
         return len(self.children) == 0
 
     def is_fully_expanded(self) -> bool:
+        """Closed or failed nodes cannot be expanded further."""
         # This project controls expansion in supervisor; keep semantic helper.
         return self.status in {"completed_closed", "failed"}
 
     def get_reward_value(self) -> float:
+        """Return the best available reward: prefer the critic evaluation's
+        reward, then the node-level reward, then the running average."""
         if self.evaluation and self.evaluation.get("reward") is not None:
             try:
                 return float(self.evaluation["reward"])
@@ -98,11 +104,15 @@ class MCTSNode:
         self.children.append(child)
 
     def update_stats(self, reward: float):
+        """Increment visit count and update the running average reward."""
         self.visits += 1
         self.total_reward += reward
         self.average_reward = self.total_reward / self.visits
 
     def backpropagate(self, reward: float):
+        """Walk up to the root, incrementing visit counts and accumulating
+        reward. When reward >= 0.8, also apply cognitive reinforcement
+        to ancestors so high-quality knowledge propagates upward."""
         current: Optional["MCTSNode"] = self
         while current is not None:
             current.update_stats(reward)
@@ -111,6 +121,8 @@ class MCTSNode:
             current = current.parent
 
     def _apply_cognitive_reinforcement(self, source: "MCTSNode", target: "MCTSNode"):
+        """Tag ancestor nodes with verified knowledge from a high-reward
+        descendant, capped at 3000 chars to bound memory growth."""
         if not source.knowledge:
             return
 
@@ -128,6 +140,7 @@ class MCTSNode:
             target.is_compressed = True
 
     def get_depth(self) -> int:
+        """Count the number of edges from this node up to the root."""
         depth = 0
         current = self
         while current.parent is not None:
@@ -136,6 +149,8 @@ class MCTSNode:
         return depth
 
     def is_subtask_complete(self) -> bool:
+        """Check whether the critic judged this subtask as complete.
+        Looks for decision=='complete' or verdict=='accept'."""
         feedback = self.evaluation or {}
         decision = str(feedback.get("decision", "")).strip().lower()
         verdict = str(feedback.get("verdict", "")).strip().lower()
@@ -145,6 +160,8 @@ class MCTSNode:
         return int(self.node_id)
     
     def get_hcc_context(self) -> str:
+        """Build the Hierarchical Context Chain for this node:
+        ancestor L2 summaries followed by the current node's raw L1 details."""
         context_segments = []
 
         ancestors = []
@@ -166,6 +183,7 @@ class MCTSNode:
         return "\n\n".join(context_segments)
     
     def to_dict(self) -> Dict[str, Any]:
+        """Compact serialization for logging and debugging."""
         return {
             "node_id": self.node_id,
             "subtask_id": self.subtask_id,
@@ -182,7 +200,8 @@ class MCTSNode:
 
 
 class MCTSTree:
-    """MCTS 搜索树管理器。"""
+    """Container for the full MCTS search tree. Tracks all nodes by ID
+    and maintains subtask root references."""
 
     def __init__(self, root_subtask_id: int, root_description: str, prior_knowlege=None):
         self.root = MCTSNode(
@@ -205,11 +224,14 @@ class MCTSTree:
         return self.nodes.get(node_id)
 
     def add_node(self, node: MCTSNode):
+        """Register a node in the tree. First node for a given subtask_id
+        also becomes that subtask's root reference."""
         self.nodes[node.node_id] = node
         if node.subtask_id not in self.subtask_roots:
             self.subtask_roots[node.subtask_id] = node
 
     def _get_best_path(self) -> List[MCTSNode]:
+        """Greedy walk: always pick the child with the highest average reward."""
         path = []
         curr = self.root
         while curr.children:
@@ -219,6 +241,10 @@ class MCTSTree:
 
 
     def get_context_for_node(self, node: MCTSNode) -> str:
+        """Assemble context for the Supervisor/Theoretician by combining:
+        1. L2 peer insights from sibling branches
+        2. L2 ancestor summaries along the path from root
+        3. L1 raw experience for the target node itself"""
         path = []
         curr = node
         while curr:
@@ -275,6 +301,8 @@ class MCTSTree:
         return list(self.nodes.values())
 
     def get_tree_stats(self) -> Dict[str, Any]:
+        """Return summary statistics: total nodes, per-subtask counts,
+        per-depth counts, and node type distribution."""
         depths: Dict[int, int] = {}
         node_type_counts: Dict[str, int] = {}
         for node in self.nodes.values():

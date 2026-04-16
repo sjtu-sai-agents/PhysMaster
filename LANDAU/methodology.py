@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Tuple
 
 try:
-    import yaml  # pip install pyyaml
+    import yaml
 except ImportError as e:
     raise SystemExit("Missing dependency: pyyaml. Install with: pip install pyyaml") from e
 
@@ -61,7 +61,7 @@ def discover_skill_manifests(skills_root: Path) -> List[Dict[str, Any]]:
     for m in skills:
         sid = m.get("skill_id")
         if not sid:
-            continue  # 跳过缺 skill_id 的（前面已经会报错）
+            continue
 
         if sid in seen:
             dup.append((sid, seen[sid], m.get("skill_path", "<unknown>")))

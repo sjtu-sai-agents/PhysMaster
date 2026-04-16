@@ -8,6 +8,8 @@ from openai import OpenAI
 
 
 def _load_llm_config(config_path: str | Path | None = None) -> Dict[str, Any]:
+    """Read the 'llm' section from config.yaml. Requires base_url,
+    api_key, and model to be present."""
     default_path = Path(__file__).resolve().parents[1] / "config.yaml"
     path = Path(config_path) if config_path else default_path
     if not path.exists():
@@ -28,6 +30,9 @@ def _load_llm_config(config_path: str | Path | None = None) -> Dict[str, Any]:
 
 
 class LLMClient:
+    """Thin wrapper around the OpenAI-compatible chat API. Handles both
+    plain completions and multi-turn tool-call loops."""
+
     def __init__(self, config_path: str | Path | None = None):
         llm_config = _load_llm_config(config_path)
         self.model = str(llm_config["model"])
@@ -43,6 +48,7 @@ class LLMClient:
         user_prompt: str,
         model_name: Optional[str] = None,
     ) -> str:
+        """Single-turn chat completion with no tool definitions."""
         completion = self.client.chat.completions.create(
             model=model_name or self.model,
             messages=[
@@ -61,6 +67,10 @@ class LLMClient:
         model_name: Optional[str] = None,
         max_tool_calls: int = 20,
     ) -> str:
+        """Send a chat request with tool definitions. Loops up to
+        max_tool_calls times, executing each tool the model invokes
+        and feeding the result back, until the model stops or the
+        limit is reached."""
         tools = tools or []
         tool_functions = tool_functions or {}
         messages: list[Dict[str, Any]] = [
@@ -134,6 +144,7 @@ _DEFAULT_CLIENT: "LLMClient | None" = None
 
 
 def _get_default_client(config_path: str | Path | None = None) -> "LLMClient":
+    """Lazy singleton. The first caller determines the config path."""
     global _DEFAULT_CLIENT
     if _DEFAULT_CLIENT is None:
         _DEFAULT_CLIENT = LLMClient(config_path=config_path)
@@ -146,6 +157,7 @@ def call_model_without_tools(
     model_name: Optional[str] = None,
     config_path: str | Path | None = None,
 ) -> str:
+    """Convenience function for a single LLM call with no tools."""
     client = _get_default_client(config_path=config_path)
     return client.call_without_tools(
         system_prompt=system_prompt,
@@ -163,6 +175,7 @@ def call_model(
     max_tool_calls: int = 20,
     config_path: str | Path | None = None,
 ) -> str:
+    """Convenience function for an LLM call with tool support."""
     client = _get_default_client(config_path=config_path)
     return client.call_with_tools(
         system_prompt=system_prompt,

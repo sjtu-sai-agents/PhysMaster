@@ -21,6 +21,8 @@ def _load_config(config_path: str | Path | None = None) -> Dict[str, Any]:
 
 
 def resolve_skill_roots(config_path: str | Path | None = None) -> List[Path]:
+    """Return deduplicated list of skill root directories from config,
+    always including the built-in LANDAU/skills as the last entry."""
     config = _load_config(config_path)
     configured = (((config.get("skills") or {}).get("roots")) or [])
 
@@ -48,6 +50,7 @@ def resolve_skill_roots(config_path: str | Path | None = None) -> List[Path]:
 
 
 def _parse_frontmatter(text: str) -> Dict[str, Any]:
+    """Extract YAML frontmatter from a '---' delimited block at the top of text."""
     if not text.startswith("---"):
         return {}
     parts = text.split("---", 2)
@@ -70,6 +73,7 @@ def _strip_frontmatter(text: str) -> str:
 
 
 def _extract_summary(markdown_text: str) -> str:
+    """Pull the first non-heading paragraph as a short summary, max 280 chars."""
     body = _strip_frontmatter(markdown_text)
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
     for paragraph in paragraphs:
@@ -82,6 +86,8 @@ def _extract_summary(markdown_text: str) -> str:
 
 
 def discover_skills(config_path: str | Path | None = None) -> List[Dict[str, Any]]:
+    """Scan all skill roots for SKILL.md files and return a sorted list
+    of skill metadata dicts with name, description, summary, and path."""
     skills: List[Dict[str, Any]] = []
     for root in resolve_skill_roots(config_path):
         if not root.exists():
@@ -107,6 +113,8 @@ def discover_skills(config_path: str | Path | None = None) -> List[Dict[str, Any
 
 
 def build_skill_brief_prompt(config_path: str | Path | None = None) -> str:
+    """Generate a short prompt listing all discovered skills so the
+    Theoretician knows what is available before loading any in full."""
     skills = discover_skills(config_path)
     lines = [
         "[SKILL BRIEF]",
@@ -147,6 +155,8 @@ def _resolve_skill_entries(skill_names: List[str], config_path: str | Path | Non
 
 
 def load_skill_specs(skill_names: List[str], config_path: str | Path | None = None) -> str:
+    """Load the full SKILL.md content for the requested skill names.
+    Called as a tool by the Theoretician at runtime."""
     entries = _resolve_skill_entries(skill_names, config_path=config_path)
     blocks = [
         "[SKILL FULL]",

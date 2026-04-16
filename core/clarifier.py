@@ -12,11 +12,25 @@ SYSTEM_PROMPT = load_prompt("prompts/clarifier_system_prompt.txt")
 USER_PROMPT = load_prompt("prompts/clarifier_prompt.txt")
 
 class Clarifier:
+    """Stage 1 of the pipeline. Turns raw physics problem text into a
+    structured JSON contract via LLM, optionally augmented with a
+    matching LANDAU workflow reference.
+
+    The overall flow is:
+      raw_input text
+        -> task_spec(): format prompt with contract schema, search for a
+           relevant workflow YAML, call LLM to produce JSON
+        -> _parse_result(): extract the first {...} JSON block from LLM output
+        -> _normalize_contract(): keep only keys present in the schema
+        -> return the cleaned contract dict
+    """
+
     def __init__(self, config, workflow_enabled: bool = True, config_path:str = 'config.yaml'):
         self.max_keys = config.get("max_key_concpets",5)
         self.workflow_dir = self._resolve_workflow_dir(config)
         self.workflow_enabled = bool(workflow_enabled)
         self.config_path = config_path
+        # Stopwords are stripped before workflow matching to reduce noise
         self._stopwords = {
             "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
             "in", "is", "it", "of", "on", "or", "that", "the", "this", "to",
@@ -25,6 +39,10 @@ class Clarifier:
         }
 
     def _resolve_workflow_dir(self,config):
+        """Try to resolve a workflow directory from config. Returns an
+        absolute Path if workflow_dir or workflow_path is configured,
+        otherwise None (fallback will use the default LANDAU path)."""
+        # parents[2] goes up from core/ to project root
         project_root = Path(__file__).resolve().parents[2]
         configured = (
             config.get("workflow_dir")
@@ -32,6 +50,7 @@ class Clarifier:
         )
         if configured:
             p = Path(str(configured))
+            # support both absolute and relative paths in config
             return p if p.is_absolute() else (project_root / p).resolve()
         
     def _resolve_default_workflow_dir(self) -> Path:
@@ -46,6 +65,7 @@ class Clarifier:
         return candidates[0].resolve()
 
     def _tokenize_query(self, query: str) -> list[str]:
+        """Split query into lowercase tokens: ascii words, digits, or CJK chars."""
         q = (query or "").strip().lower()
         if not q:
             return []
@@ -55,6 +75,8 @@ class Clarifier:
         return [tok for tok in tokens if tok not in self._stopwords]
 
     def _extract_workflow_goal(self, data: dict) -> str:
+        """Pull the Goal string from a workflow YAML. Supports both
+        capitalized and lowercase key names."""
         if not isinstance(data, dict):
             return ""
         wf = data.get("Workflow") or data.get("workflow") or {}
@@ -64,6 +86,8 @@ class Clarifier:
         return str(goal).strip()
     
     def _parse_workflow_file(self):
+        """If workflow_dir points directly to a YAML file, parse it.
+        Returns {"path", "goal", "raw"} or None on failure."""
         if self.workflow_dir.exists() and self.workflow_dir.is_file():
             try:
                 raw = self.workflow_dir.read_text(encoding="utf-8")
@@ -77,6 +101,18 @@ class Clarifier:
             return None
 
     def _select_workflow_by_goal(self, user_query: str) -> dict | None:
+        """Pick the best-matching workflow YAML by token overlap between
+        the user query and each workflow's Goal field.
+
+        Matching logic:
+          1. Tokenize query and each workflow Goal into lowercase tokens.
+          2. Remove stopwords from both.
+          3. Compute set intersection and a goal_ratio (overlap / goal_tokens).
+          4. Require at least 1 overlap token and a minimum goal_ratio
+             threshold (25% for long goals, 34% for short ones).
+          5. Score = overlap_count*2 + goal_ratio, pick highest.
+        Returns {"path", "goal", "raw"} dict or None.
+        """
         print("[Clarifier] Start searching workflows")
 
         tokens = self._remove_stopwords(self._tokenize_query(user_query))
@@ -125,6 +161,7 @@ class Clarifier:
             if goal_ratio < min_goal_ratio:
                 continue
 
+            # Score formula: heavily weight overlap count, add goal_ratio as tiebreaker
             score = overlap_count * 2 + goal_ratio
             if score > best_score:
                 best_score = score
@@ -138,6 +175,15 @@ class Clarifier:
         return best
 
     def task_spec(self, user_query):
+        """Build the full LLM prompt and call the model.
+
+        Steps:
+          1. Load the contract JSON schema from utils/contract_template.json.
+          2. Format the user prompt with the query text, schema, and max_keys.
+          3. If workflow is enabled, search for the best-matching workflow
+             YAML and append it to the prompt as additional context.
+          4. Call the LLM (no tools) and return (response_str, schema_dict).
+        """
         schema_path = Path(__file__).resolve().parent.parent / "utils/contract_template.json"
         if not schema_path.exists():
             raise FileNotFoundError(f"Contract template not found: {schema_path}")
@@ -186,7 +232,10 @@ class Clarifier:
         return {k: v for k, v in contract.items() if k in allowed}
 
     def _parse_result(self, result):
-        """Parse the LLM response into structured format"""
+        """Extract the first JSON object from the LLM response string.
+        The LLM often wraps the JSON in markdown or extra text, so we
+        find the outermost { ... } and parse it. Returns a dict on
+        success, or a dict with 'error' key on failure."""
         try:
             # Try to extract JSON from the response
             if "{" in result and "}" in result:
@@ -203,6 +252,12 @@ class Clarifier:
             }
 
     def run(self, raw_input):
+        """Main entry point.
+
+        Takes raw physics problem text as a string, sends it through
+        task_spec -> _parse_result -> _normalize_contract, and returns
+        a clean structured contract dict whose keys match the schema.
+        """
         result, schema = self.task_spec(raw_input)
         contract = self._parse_result(result)
         contract = self._normalize_contract(contract, schema)

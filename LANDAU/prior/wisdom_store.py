@@ -28,7 +28,9 @@ from utils.llm_client import call_model_without_tools
 
 
 class WisdomStore:
-    """Extract task-level wisdom and append it to the shared prior index."""
+    """L3 memory layer. After a task finishes, distills cross-subtask
+    wisdom via LLM and appends it to the shared FAISS prior index so
+    future tasks can retrieve it through the normal PriorRetriever."""
 
     def __init__(self, prior_store_dir: str | Path, config_path: str | Path | None = None):
         self.prior_dir = Path(prior_store_dir)
@@ -52,6 +54,7 @@ class WisdomStore:
 
 
     def _get_emb_model(self) -> SentenceTransformer:
+        """Lazy-load the sentence transformer model on first use."""
         if self._emb_model is None:
             if SentenceTransformer is None:
                 raise RuntimeError("sentence-transformers is required for WisdomStore")
@@ -66,6 +69,8 @@ class WisdomStore:
         trajectory: List[Dict[str, Any]],
         completed_subtasks: List[Any],
     ) -> str:
+        """Collect L2 knowledge from trajectory nodes and ask the LLM
+        to distill them into a single wisdom paragraph."""
         task_description = json.dumps(structured_problem, ensure_ascii=False, indent=2)
 
         knowledge_parts: List[str] = []
@@ -97,7 +102,8 @@ class WisdomStore:
         return wisdom_text
 
     def store_wisdom(self, task_description: str, wisdom_text: str, task_name: str):
-        """Append a wisdom chunk to chunks.jsonl and incrementally update the FAISS index."""
+        """Append a wisdom chunk to chunks.jsonl, encode it, and
+        incrementally add the embedding to the FAISS index."""
         if not wisdom_text.strip():
             print("[Wisdom] Empty wisdom text, skipping store.")
             return
@@ -196,7 +202,7 @@ class WisdomStore:
         completed_subtasks: List[Any],
         task_name: str,
     ):
-        """Extract wisdom from a finished task and store it in the prior index."""
+        """End-to-end: extract wisdom from trajectory then persist it."""
         print(f"[HCC-L3] Extracting task-level wisdom from {len(trajectory)} trajectory nodes...")
         wisdom_text = self.extract_wisdom(structured_problem, trajectory, completed_subtasks)
         print(f"[HCC-L3] Wisdom extracted ({len(wisdom_text)} chars):")

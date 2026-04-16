@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# OpenAI-format tool definitions for the Theoretician and Supervisor agents.
+# Each dict is passed directly to the `tools` parameter of chat completions.
 
 PYTHON_CODE_TOOL = {
     "type": "function",
@@ -135,5 +137,6 @@ PRIOR_SEARCH_TOOL = {
 }
 
 
+# Bundles used in different agent contexts
 THEORETICIAN_CORE_TOOLS = [PYTHON_CODE_TOOL, LOAD_SKILL_SPECS_TOOL]
 LIBRARY_TOOLS = [LIBRARY_SEARCH_TOOL, LIBRARY_PARSE_TOOL]

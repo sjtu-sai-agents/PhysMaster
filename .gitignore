@@ -11,3 +11,6 @@ inputs/
 instructions/
 *.pyc
 *env
+
+# Feishu bot config (contains secrets)
+feishu/config.yaml
