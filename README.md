@@ -40,7 +40,7 @@ PhysMaster decomposes a physics problem into subtasks, explores multiple solutio
 
 ## Architecture
 
-Six specialized agents collaborate inside an MCTS loop:
+Five specialized agents collaborate inside an MCTS loop:
 
 ```
  ╭──────────╮
@@ -55,12 +55,12 @@ Six specialized agents collaborate inside an MCTS loop:
                   │   │  (dispatch)│      │  (solve, x N)    │     │
                   │   └─────▲──────┘      └────────┬─────────┘     │
                   │         │                      ▼               │
-                  │   ┌─────┴──────┐      ┌──────────────────┐     │
-                  │   │  Promoter  │◀─────│     Critic       │     │
-                  │   │ (L1 → L2)  │      │   (evaluate)     │     │
-                  │   └────────────┘      └──────────────────┘     │
+                  │         │             ┌──────────────────┐     │
+                  │         └─────────────│     Critic       │     │
+                  │                       │   (evaluate)     │     │
+                  │                       └──────────────────┘     │
                   │                                                │
-                  │   select ── expand ── evaluate ── promote      │
+                  │   select ── expand ── evaluate                 │
                   │           backpropagate ── prune               │
                   ╰────────────────────┬───────────────────────────╯
                                        ▼
@@ -72,10 +72,9 @@ Six specialized agents collaborate inside an MCTS loop:
 | Agent | What it does |
 |:------|:-------------|
 | **Clarifier** | Parses the raw problem into a structured contract with subtasks |
-| **Supervisor** | Reads the tree context (HCC), picks the next subtask, decides draft vs. revise |
+| **Supervisor** | Reads the tree context, picks the next subtask, decides draft vs. revise |
 | **Theoretician** | Solves a subtask &mdash; can call Python, skills, web search, and the prior knowledge base |
 | **Critic** | Scores the solution (0&ndash;1) and returns a verdict: `complete` / `to_revise` / `to_redraft` |
-| **Promoter** | Compresses raw experience (L1) into reusable knowledge (L2) on the tree |
 | **Summarizer** | Extracts the best trajectory from the tree and writes a Markdown report |
 
 > The loop stops when all subtasks are completed along some path, or the round budget runs out.

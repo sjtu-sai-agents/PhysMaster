@@ -10,20 +10,27 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Optional
 
 # Ensure project root is on sys.path so we can import core.* / utils.* etc.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+# CWD must be project root before importing core modules, because
+# clarifier.py loads prompt files relative to CWD at import time.
+os.chdir(str(_PROJECT_ROOT))
+
+# Heavy imports (torch, faiss, sentence_transformers, etc.) are deferred
+# to solve() so that bot.py can start the WebSocket connection instantly.
 from run import load_config, get_task_name
-from core.clarifier import Clarifier
-from core.supervisor import SupervisorOrchestrator
-from core.summarizer import TrajectorySummarizer
 
 
-def solve(query_text: str, config_path: str = "config.yaml") -> Dict[str, Any]:
+def solve(
+    query_text: str,
+    config_path: str = "config.yaml",
+    progress_cb: Optional[Callable[[str], None]] = None,
+) -> Dict[str, Any]:
     """
     Execute the full PhysMaster pipeline for *query_text* and return a result
     dict with keys: task_name, summary, task_dir.
@@ -34,6 +41,9 @@ def solve(query_text: str, config_path: str = "config.yaml") -> Dict[str, Any]:
         Raw physics problem text (e.g. from the Feishu message).
     config_path : str
         Path to the main PhysMaster config.yaml (relative to project root).
+    progress_cb : callable, optional
+        Called with a status string at each major pipeline stage.
+        e.g. progress_cb("Clarifier done, starting MCTS...")
 
     Returns
     -------
@@ -49,12 +59,31 @@ def solve(query_text: str, config_path: str = "config.yaml") -> Dict[str, Any]:
     os.chdir(str(_PROJECT_ROOT))
 
     try:
-        return _run_pipeline(query_text, cfg, config_path_str)
+        return _run_pipeline(query_text, cfg, config_path_str, progress_cb)
     finally:
         os.chdir(prev_cwd)
 
 
-def _run_pipeline(query_text: str, cfg: dict, config_path: str) -> Dict[str, Any]:
+def _run_pipeline(
+    query_text: str,
+    cfg: dict,
+    config_path: str,
+    progress_cb: Optional[Callable[[str], None]] = None,
+) -> Dict[str, Any]:
+    def _report(msg: str):
+        if progress_cb:
+            try:
+                progress_cb(msg)
+            except Exception:
+                pass
+
+    _report("[1/4] Loading modules...")
+
+    # Lazy import: these pull in torch/faiss/etc. Only pay the cost when actually solving.
+    from core.clarifier import Clarifier
+    from core.supervisor import SupervisorOrchestrator
+    from core.summarizer import TrajectorySummarizer
+
     pipeline_cfg = cfg.get("pipeline", {})
     clarifier_cfg = cfg.get("clarifier", {})
     output_root = pipeline_cfg.get("output_path", "outputs")
@@ -78,6 +107,7 @@ def _run_pipeline(query_text: str, cfg: dict, config_path: str) -> Dict[str, Any
     clarifier_cfg["workflow_dir"] = str(workflow_root)
 
     # ---- 1. Clarify ----
+    _report("[2/4] Clarifier: analyzing problem structure...")
     clr = Clarifier(clarifier_cfg, workflow_enabled=workflow_enabled, config_path=config_path)
     structured_problem = clr.run(query_text)
     structured_problem["instruction_filename"] = "feishu_query"
@@ -88,6 +118,16 @@ def _run_pipeline(query_text: str, cfg: dict, config_path: str) -> Dict[str, Any
 
     with open(task_dir / "contract.json", "w", encoding="utf-8") as f:
         json.dump(structured_problem, f, ensure_ascii=False, indent=2)
+
+    # count subtasks for the status message
+    subtask_list = (
+        structured_problem.get("sub-tasks")
+        or structured_problem.get("sub_tasks")
+        or structured_problem.get("subtasks")
+        or []
+    )
+    n_sub = len(subtask_list) if isinstance(subtask_list, list) else 1
+    _report(f"[2/4] Clarifier done. {n_sub} subtask(s) identified. Starting MCTS search...")
 
     # ---- 2. MCTS ----
     processes = pipeline_cfg.get("parallel_processes", 2)
@@ -109,6 +149,15 @@ def _run_pipeline(query_text: str, cfg: dict, config_path: str) -> Dict[str, Any
     mcts_result = supervisor.run()
     trajectory = mcts_result.get("trajectory", []) or []
 
+    total_nodes = mcts_result.get("total_nodes", 0)
+    total_rounds = mcts_result.get("total_rounds", 0)
+    completed = len(mcts_result.get("completed_subtasks", []))
+    _report(
+        f"[3/4] MCTS search done. "
+        f"{total_rounds} rounds, {total_nodes} nodes explored, "
+        f"{completed}/{n_sub} subtask(s) completed. Generating summary..."
+    )
+
     # ---- 3. Wisdom (optional) ----
     if wisdom_save_enabled and prior_enabled:
         try:
@@ -124,6 +173,7 @@ def _run_pipeline(query_text: str, cfg: dict, config_path: str) -> Dict[str, Any
             print(f"[Wisdom] Failed to save wisdom: {e}")
 
     # ---- 4. Summarize ----
+    _report("[4/4] Writing summary...")
     summarizer = TrajectorySummarizer(prompts_path="prompts/", config_path=config_path)
     summary_md_path = task_dir / "summary.md"
     contract_for_summary = json.dumps(structured_problem, ensure_ascii=False, indent=2)

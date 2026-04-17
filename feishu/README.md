@@ -1,134 +1,116 @@
-# PhysMaster 飞书机器人
+# PhysMaster Feishu Bot
 
-将 PhysMaster 的物理求解能力接入飞书，用户在群聊/私聊中发送物理题，Bot 异步执行求解并推送结果。
+Bring PhysMaster's physics-solving capabilities to Feishu (Lark). Users send physics problems in direct messages or group chats, and the bot runs the full pipeline asynchronously and pushes results back.
 
-## 快速开始
+Uses Feishu's officially recommended **long-connection (WebSocket)** mode — no public IP, no domain, no ngrok required.
 
-### 1. 创建飞书应用
+**[中文文档](README_CN.md)**
 
-1. 打开 [飞书开放平台](https://open.feishu.cn/app)，创建一个**企业自建应用**
-2. 记录 **App ID** 和 **App Secret**
+## Quick Start
 
-### 2. 配置权限
+### 1. Create a Feishu App
 
-在应用的「权限管理」页面，申请以下权限：
+1. Go to the [Feishu Open Platform](https://open.feishu.cn/app) and create a **custom enterprise app**
+2. Note down the **App ID** and **App Secret**
 
-| 权限 | 说明 |
-|------|------|
-| `im:message` | 获取与发送单聊、群组消息 |
-| `im:message:send_as_bot` | 以应用身份发送消息 |
-| `im:message.group_at_msg` | 接收群聊中 @ 机器人的消息 |
-| `im:message.p2p_msg` | 接收用户发给机器人的单聊消息 |
+### 2. Configure Permissions
 
-### 3. 配置事件订阅
+In the app's "Permissions" page, request the following scopes:
 
-1. 进入「事件订阅」页面
-2. 设置请求地址（Request URL）为：`https://<your-domain>/webhook/event`
-3. 添加事件：`im.message.receive_v1`（接收消息）
-4. 记录页面上的 **Verification Token**
+| Permission | Purpose |
+|---|---|
+| `im:message` | Read and send messages in chats |
+| `im:message:send_as_bot` | Send messages as the bot |
+| `im:message.group_at_msg` | Receive messages when @mentioned in groups |
+| `im:message.p2p_msg` | Receive direct messages from users |
 
-### 4. 配置 Bot
+### 3. Configure Event Subscription (Long Connection)
+
+1. Go to "Events & Callbacks" → "Event Configuration"
+2. Set subscription mode to **"Receive events via long connection"**
+3. Add event: `im.message.receive_v1` (Receive messages)
+
+> In long-connection mode, there is no need to configure a Request URL, Verification Token, or Encrypt Key.
+
+### 4. Configure the Bot
 
 ```bash
 cd feishu
 cp config_example.yaml config.yaml
 ```
 
-编辑 `config.yaml`，填入：
+Edit `config.yaml` — only App ID and App Secret are needed:
 
 ```yaml
 feishu:
-  app_id: "cli_xxxx"          # 替换为你的 App ID
-  app_secret: "xxxx"          # 替换为你的 App Secret
-  verification_token: "xxxx"  # 替换为事件订阅的 Verification Token
-  encrypt_key: ""             # 如需加密可填入 Encrypt Key
+  app_id: "cli_xxxx"          # your App ID
+  app_secret: "xxxx"          # your App Secret
 
 server:
-  host: "0.0.0.0"
-  port: 9000
-  max_workers: 2              # 并发求解任务数
+  max_workers: 2              # concurrent solve tasks
 
 physmaster:
-  config_path: "config.yaml"  # 指向主项目 config.yaml
+  config_path: "config.yaml"  # path to the main PhysMaster config.yaml
 ```
 
-### 5. 安装依赖
+### 5. Install Dependencies
 
 ```bash
-pip install fastapi uvicorn requests pyyaml
+pip install lark-oapi pyyaml
 ```
 
-### 6. 启动服务
+### 6. Start
 
 ```bash
 cd feishu
 python bot.py
 ```
 
-服务默认监听 `0.0.0.0:9000`。
+When you see `connected to wss://...` in the logs, the connection is established. No port configuration or public address exposure needed.
 
-### 7. 暴露公网地址（开发环境）
+### 7. Enable the Bot
 
-如果在本地开发，可使用 ngrok 暴露端口：
+Publish an app version in the Feishu Open Platform under "App Release", or enable it directly in your test organization.
 
-```bash
-ngrok http 9000
-```
+## Usage
 
-将 ngrok 给出的 HTTPS 地址填入飞书开放平台的「事件订阅 → 请求地址」，例如：
+- **Direct message**: Send physics problem text directly to the bot
+- **Group chat**: @Bot followed by the physics problem text
 
-```
-https://abcd1234.ngrok.io/webhook/event
-```
+The bot immediately replies "solving...", then pushes progress updates during the pipeline, and sends the final summary when done (typically 5–30 minutes).
 
-### 8. 启用机器人
-
-在飞书开放平台「应用发布」中发布应用版本，或在测试企业中直接启用。
-
-## 使用方式
-
-- **私聊**：直接给 Bot 发送物理题文字
-- **群聊**：@Bot 后跟物理题文字
-
-Bot 会立即回复「正在求解…」，求解完成后（通常 5-30 分钟）主动推送 summary 结果。
-
-## 架构说明
+## Architecture
 
 ```
-用户发消息 ──→ 飞书服务器 ──→ POST /webhook/event
-                                    │
-                              bot.py (FastAPI)
-                                    │
-                      ┌─────────────┴──────────────┐
-                      │  立即回复 "正在求解…"         │
-                      │  提交到 ThreadPoolExecutor   │
-                      └─────────────┬──────────────┘
-                                    │ (后台线程)
-                              worker.py
-                                    │
-                      Clarifier → MCTS → Summarizer
-                                    │
-                              结果推送回飞书
+User message ──→ Feishu server ──WebSocket──→ lark-oapi SDK
+                                                    │
+                                              bot.py (event handler)
+                                                    │
+                                      ┌─────────────┴──────────────┐
+                                      │  Reply "solving..."         │
+                                      │  Submit to ThreadPoolExecutor│
+                                      └─────────────┬──────────────┘
+                                                    │ (background thread)
+                                              worker.py
+                                                    │
+                                      Clarifier → MCTS → Summarizer
+                                                    │
+                                              Push result to Feishu
 ```
 
-## 文件说明
+## Files
 
-| 文件 | 说明 |
-|------|------|
-| `bot.py` | FastAPI 服务，接收 webhook、发送消息 |
-| `worker.py` | 调用 PhysMaster pipeline 的封装 |
-| `config_example.yaml` | 配置模板 |
-| `config.yaml` | 实际配置（不提交到 git） |
+| File | Description |
+|---|---|
+| `bot.py` | Long-connection event handler and message sending |
+| `worker.py` | PhysMaster pipeline wrapper |
+| `config_example.yaml` | Configuration template |
+| `config.yaml` | Actual config (not committed to git) |
 
-## 健康检查
+## Notes
 
-```bash
-curl http://localhost:9000/health
-```
-
-## 注意事项
-
-- `config.yaml` 包含密钥，请勿提交到版本控制（已在 `.gitignore` 中排除）
-- `max_workers` 控制并发求解数，每个任务消耗较多内存和 GPU/API 资源，建议设为 1-2
-- 飞书消息有长度限制，超长 summary 会自动截断，完整结果请查看服务器上的 `summary.md`
-- Bot 内置消息去重机制，飞书重试不会导致重复求解
+- `config.yaml` contains secrets — do not commit to version control (excluded in `.gitignore`)
+- `max_workers` controls concurrent solve tasks; each task is resource-heavy, recommended value is 1–2
+- Feishu has a message length limit; long summaries are auto-truncated, full results are available in `summary.md` on the server
+- Event handlers must return within 3 seconds (current design: immediate reply + background thread, well within budget)
+- Each app supports up to 50 long connections (only 1 is needed)
