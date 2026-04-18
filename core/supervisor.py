@@ -288,10 +288,10 @@ class SupervisorOrchestrator:
             "supervisor_dispatch": supervisor_dispatch,
         }
     def _call_promoter(self, node: MCTSNode) -> str:
-        """Distill L1 raw experience into L2 compressed knowledge.
-        The Promoter LLM reads the node's experience and evaluation,
-        then produces a concise summary that will be stored as node.knowledge
-        and used in the HCC context for future nodes."""
+        """Distill raw experience into compressed knowledge.
+        The LLM reads the node's experience and evaluation,
+        then produces a concise summary stored as node.knowledge
+        and used in the tree context for future nodes."""
 
         if not self.promoter_prompt:
             return ""
@@ -320,7 +320,7 @@ class SupervisorOrchestrator:
     def _call_supervisor(self, node: MCTSNode, hcc_context: str) -> str:
         """Ask the Supervisor LLM to decide what subtask to work on next
         and whether to draft or revise. The supervisor sees the full
-        structured problem plus the HCC context built from the tree.
+        structured problem plus the context built from the tree.
         It can also call library/prior search tools mid-conversation."""
         if not self.supervisor_prompt:
             return ""
@@ -421,7 +421,7 @@ class SupervisorOrchestrator:
         round_index: int,
     ) -> List[MCTSNode]:
         """Spawn `count` Theoretician workers in parallel, collect their
-        outputs, run Critic + Promoter on each, then backpropagate rewards."""
+        outputs, run Critic on each, distill knowledge, then backpropagate rewards."""
         if parent and parent.status == "completed_closed":
             return []
 
@@ -520,7 +520,7 @@ class SupervisorOrchestrator:
             reward = self._extract_reward(evaluation)
             child_node.reward = reward
 
-        # After critic: promote L1 experience into L2 compressed knowledge
+        # After critic: distill raw experience into compressed knowledge
             child_node.knowledge = self._call_promoter(child_node)
             child_node.is_compressed = True
                 

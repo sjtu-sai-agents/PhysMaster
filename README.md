@@ -28,7 +28,7 @@ PhysMaster decomposes a physics problem into subtasks, explores multiple solutio
 - [Configuration Reference](#configuration-reference)
 - [Key Concepts](#key-concepts)
   - [MCTS Search](#-mcts-search)
-  - [Memory Hierarchy (HCC)](#-memory-hierarchy-hcc)
+  - [Memory System](#-memory-system)
   - [Prior Knowledge (RAG)](#-prior-knowledge-rag)
   - [Skills](#-skills)
   - [Workflow Templates](#-workflow-templates)
@@ -185,7 +185,7 @@ landau:
   workflow: "LANDAU/workflow"
   prior_enabled: true          # FAISS RAG knowledge base
   prior: "LANDAU/prior"
-  wisdom_save_enabled: false   # persist L3 wisdom after each task
+  wisdom_save_enabled: false   # persist distilled wisdom after each task
 
 # ── Visualization ────────────────────────────────────
 visualization:
@@ -216,31 +216,24 @@ PhysMaster does **not** solve linearly. It maintains a tree of solution attempts
 | **Select** | UCB1 picks the most promising leaf, balancing reward vs. exploration |
 | **Expand** | N Theoretician workers spawn in parallel and produce child nodes |
 | **Evaluate** | Critic scores each child on a 0&ndash;1 scale |
-| **Promote** | Promoter compresses the raw trace into a concise knowledge string |
-| **Backpropagate** | Reward flows upward; high-reward nodes (&gt;0.8) reinforce ancestors |
+| **Backpropagate** | Reward flows upward; high-reward nodes (&gt;0.8) reinforce ancestors with verified knowledge |
 | **Prune** | If beam width is set, low-reward nodes beyond the budget are closed |
 
 The search terminates when a complete path is found or `max_rounds` is hit. The best root-to-leaf path is extracted for the summary.
 
 ---
 
-### 🧠 Memory Hierarchy (HCC)
+### 🧠 Memory System
 
-Three levels, from ephemeral to persistent:
+The search tree carries knowledge forward at multiple scopes:
 
-```
- ┌──────────────────────────────────────────────────────────────────┐
- │  L3  Wisdom          across tasks    → FAISS prior index        │
- │  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  │
- │  L2  Knowledge       across tree     → node.knowledge           │
- │  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  │
- │  L1  Experience      single node     → node.experience          │
- └──────────────────────────────────────────────────────────────────┘
-```
+- **Per-node experience** &nbsp; Each node stores the full Theoretician output &mdash; reasoning trace, tool calls, code. This raw detail is available to the Critic during evaluation and to direct descendants during expansion.
 
-- **L1 &mdash; Experience** &nbsp; Raw Theoretician output: full reasoning, tool calls, code. Stored per node.
-- **L2 &mdash; Knowledge** &nbsp; Compressed by the Promoter after evaluation. Propagated through the tree context so descendant nodes see what ancestors learned. When a node scores &gt;0.8, its L2 is tagged onto ancestors during backpropagation (*cognitive reinforcement*).
-- **L3 &mdash; Wisdom** &nbsp; Distilled after the entire task completes. Written back to the FAISS prior index so **future tasks** can retrieve it.
+- **Compressed knowledge** &nbsp; After evaluation, the raw experience is distilled into a concise summary and attached to the node. When new nodes are expanded, the Supervisor assembles context from ancestor summaries and sibling insights so that later attempts build on what earlier branches learned.
+
+- **Cross-task wisdom** &nbsp; When a task completes, an LLM can optionally distill the best trajectory into a reusable wisdom chunk and write it back to the FAISS prior index. Future tasks then retrieve this wisdom alongside textbook references, creating a feedback loop that improves over time.
+
+High-reward nodes (&gt;0.8) trigger *cognitive reinforcement*: their verified knowledge is propagated to ancestor nodes during backpropagation, strengthening context quality for future expansions on the same branch.
 
 ---
 
@@ -266,7 +259,7 @@ Enable in config:
 ```yaml
 landau:
   prior_enabled: true
-  wisdom_save_enabled: true   # optional: persist L3 wisdom
+  wisdom_save_enabled: true   # optional: persist cross-task wisdom
 ```
 
 ---
@@ -333,7 +326,7 @@ PHY_Master/
 │   └── prior/                     FAISS RAG knowledge base
 │       ├── prior_store.py           Ingestion pipeline
 │       ├── prior_retrieve.py        Hybrid retriever
-│       └── wisdom_store.py          L3 wisdom persistence
+│       └── wisdom_store.py          Cross-task wisdom persistence
 │
 ├── utils/                       Utilities
 │   ├── llm_client.py              OpenAI-compatible API wrapper

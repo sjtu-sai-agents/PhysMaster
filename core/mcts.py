@@ -40,10 +40,10 @@ class MCTSNode:
     supervisor_feedback: Optional[Dict[str, Any]] = None
     theoretician_output: Optional[Any] = None
 
-    # HCC memory hierarchy: L1 raw experience, L2 distilled knowledge
+    # Memory fields: raw experience and distilled knowledge
     experience: List[Dict[str, Any]] = field(default_factory=list)
     knowledge: str = ""
-    is_compressed: bool = False  # True after Promoter distills experience into knowledge
+    is_compressed: bool = False  # True after experience is distilled into knowledge
 
     selected_round: Optional[int] = None
     log_path: Optional[str] = None
@@ -160,8 +160,8 @@ class MCTSNode:
         return int(self.node_id)
     
     def get_hcc_context(self) -> str:
-        """Build the Hierarchical Context Chain for this node:
-        ancestor L2 summaries followed by the current node's raw L1 details."""
+        """Build context for this node: ancestor knowledge summaries
+        followed by the current node's raw experience details."""
         context_segments = []
 
         ancestors = []
@@ -242,9 +242,9 @@ class MCTSTree:
 
     def get_context_for_node(self, node: MCTSNode) -> str:
         """Assemble context for the Supervisor/Theoretician by combining:
-        1. L2 peer insights from sibling branches
-        2. L2 ancestor summaries along the path from root
-        3. L1 raw experience for the target node itself"""
+        1. Peer insights from sibling branches working on the same subtask
+        2. Ancestor knowledge summaries along the path from root
+        3. Raw experience for the target node itself"""
         path = []
         curr = node
         while curr:
@@ -265,9 +265,9 @@ class MCTSTree:
                 peer_insights.append(f"- Peer Node {p_node.node_id} ({status}): {p_node.knowledge}")
         
         if peer_insights:
-            hcc_segments.append("### [L2 - Peer Insights (Parallel Branches)]\n" + "\n".join(peer_insights[:3]))
+            hcc_segments.append("### [Peer Insights (Parallel Branches)]\n" + "\n".join(peer_insights[:3]))
 
-        hcc_segments.append("### [L1/L2 - Ancestry & Current Node Details]")
+        hcc_segments.append("### [Ancestry & Current Node Details]")
         for path_node in path:
             is_target = (path_node.node_id == node.node_id)
             
