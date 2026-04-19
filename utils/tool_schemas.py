@@ -51,32 +51,19 @@ LIBRARY_SEARCH_TOOL = {
     "type": "function",
     "function": {
         "name": "library_search",
-        "description": "Search external web/library sources for relevant references and snippets.",
+        "description": (
+            "Search arXiv for relevant physics papers. "
+            "Returns titles, authors, abstracts, and PDF links. "
+            "Supports field prefixes: ti: (title), au: (author), abs: (abstract), cat: (category). "
+            "You can also look up a specific paper by its arXiv ID, e.g. query='2301.08727'."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Search query."},
+                "query": {"type": "string", "description": "Search query or arXiv ID."},
                 "top_k": {"type": "integer", "description": "Number of results to return.", "default": 5},
             },
             "required": ["query"],
-        },
-    },
-}
-
-
-LIBRARY_PARSE_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "library_parse",
-        "description": "Read and analyze a specific web page or PDF link for the current question.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "link": {"type": "string", "description": "Web page or PDF URL."},
-                "user_prompt": {"type": "string", "description": "Question about the linked content."},
-                "llm": {"type": "string", "description": "Optional model override."},
-            },
-            "required": ["link", "user_prompt"],
         },
     },
 }
@@ -139,4 +126,4 @@ PRIOR_SEARCH_TOOL = {
 
 # Bundles used in different agent contexts
 THEORETICIAN_CORE_TOOLS = [PYTHON_CODE_TOOL, LOAD_SKILL_SPECS_TOOL]
-LIBRARY_TOOLS = [LIBRARY_SEARCH_TOOL, LIBRARY_PARSE_TOOL]
+LIBRARY_TOOLS = [LIBRARY_SEARCH_TOOL]

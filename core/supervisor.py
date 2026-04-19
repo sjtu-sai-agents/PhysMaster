@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from utils.llm_client import call_model, call_model_without_tools
-from utils.tool_schemas import LIBRARY_PARSE_TOOL, LIBRARY_SEARCH_TOOL, PRIOR_SEARCH_TOOL
+from utils.tool_schemas import LIBRARY_SEARCH_TOOL, PRIOR_SEARCH_TOOL
 
 from LANDAU.library import LibraryRetriever
 from .mcts import MCTSNode, MCTSTree
@@ -78,7 +78,7 @@ class SupervisorOrchestrator:
         # Register tool schemas the Supervisor and Critic can invoke mid-conversation
         self.kb_search_tools: List[Dict[str, Any]] = []
         if self.landau_library_enabled:
-            self.kb_search_tools.extend([LIBRARY_SEARCH_TOOL, LIBRARY_PARSE_TOOL])
+            self.kb_search_tools.append(LIBRARY_SEARCH_TOOL)
         if self.landau_prior_enabled:
             self.kb_search_tools.append(PRIOR_SEARCH_TOOL)
 
@@ -173,7 +173,7 @@ class SupervisorOrchestrator:
             print(f"[Supervisor] Prior knowledge retrieved ({len(results)} references).")
             return prior_text
         except Exception as e:
-            print(f"[Supervisor] prior knowledge retrieval failed: {e}")
+            print(f"[Supervisor] Warning: prior knowledge retrieval failed: {e}. Continuing without prior context.")
             return ""
 
     def _load_prompt(self, filename: str) -> str:
@@ -541,16 +541,31 @@ class SupervisorOrchestrator:
         return new_nodes
 
     # Tools
-    def _get_prior_retriever(self) -> PriorRetriever:
+    def _get_prior_retriever(self) -> PriorRetriever | None:
+        """Lazy-init the prior retriever. Returns None if unavailable."""
         if PriorRetriever is None:
-            raise RuntimeError("PriorRetriever is unavailable (missing optional dependency: faiss).")
+            if self.landau_prior_enabled:
+                print("[Supervisor] Warning: PriorRetriever unavailable (faiss not installed). Disabling prior search.")
+                self.landau_prior_enabled = False
+            return None
         if self._prior_retriever is None:
-            self._prior_retriever = PriorRetriever()
+            try:
+                self._prior_retriever = PriorRetriever()
+            except Exception as e:
+                print(f"[Supervisor] Warning: PriorRetriever init failed: {e}. Disabling prior search.")
+                self.landau_prior_enabled = False
+                return None
         return self._prior_retriever
 
-    def _get_library_retriever(self) -> LibraryRetriever:
+    def _get_library_retriever(self) -> LibraryRetriever | None:
+        """Lazy-init the library retriever. Returns None if unavailable."""
         if self._library_retriever is None:
-            self._library_retriever = LibraryRetriever()
+            try:
+                self._library_retriever = LibraryRetriever()
+            except Exception as e:
+                print(f"[Supervisor] Warning: LibraryRetriever init failed: {e}. Disabling library search.")
+                self.landau_library_enabled = False
+                return None
         return self._library_retriever
 
     def _prior_search(
@@ -567,8 +582,10 @@ class SupervisorOrchestrator:
     ):
         """Tool function: search the FAISS-backed prior knowledge base.
         Called by the Supervisor or Critic during their LLM tool loops."""
+        retriever = self._get_prior_retriever()
+        if retriever is None:
+            return "[prior_search] prior knowledge base is not available."
         try:
-            retriever = self._get_prior_retriever()
             results = retriever.retrieve(
                 query=query,
                 top_k=int(top_k) if top_k is not None else 3,
@@ -599,22 +616,15 @@ class SupervisorOrchestrator:
             return f"[prior_search] failed: {e}"
 
     def _library_search(self, query: str, top_k: int = 5):
-        """Tool function: search external web/library sources."""
+        """Tool function: search arXiv for relevant papers."""
+        retriever = self._get_library_retriever()
+        if retriever is None:
+            return "[library_search] arXiv search is not available."
         try:
-            retriever = self._get_library_retriever()
             results = retriever.search(query=query, top_k=int(top_k) if top_k is not None else 5)
             return retriever.format_for_llm(results)
         except Exception as e:
             return f"[library_search] failed: {e}"
-
-    def _library_parse(self, link: str, user_prompt: str, llm: str | None = None):
-        """Tool function: read and analyze a specific URL or PDF link."""
-        try:
-            retriever = self._get_library_retriever()
-            results = retriever.parse(link=link, user_prompt=user_prompt, llm=llm)
-            return retriever.format_parsed_for_llm(results)
-        except Exception as e:
-            return f"[library_parse] failed: {e}"
 
     def _log_tool_call(self, agent_label: str, node: MCTSNode, tool_name: str):
         print(
@@ -631,10 +641,6 @@ class SupervisorOrchestrator:
             functions["library_search"] = lambda **kwargs: (
                 self._log_tool_call(agent_label, node, "library_search"),
                 self._library_search(**kwargs),
-            )[1]
-            functions["library_parse"] = lambda **kwargs: (
-                self._log_tool_call(agent_label, node, "library_parse"),
-                self._library_parse(**kwargs),
             )[1]
         if self.landau_prior_enabled:
             functions["prior_search"] = lambda **kwargs: (

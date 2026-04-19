@@ -16,7 +16,13 @@ class Theoretician:
     def __init__(self, prompts_path: str = "prompts/", library_enabled: bool = True, config_path :str = 'config.yaml'):
         self.prompts_path = Path(prompts_path)
         self.library_enabled = bool(library_enabled)
-        self.library_retriever = LibraryRetriever() if self.library_enabled else None
+        self.library_retriever = None
+        if self.library_enabled:
+            try:
+                self.library_retriever = LibraryRetriever()
+            except Exception as e:
+                print(f"[Theoretician] Warning: LibraryRetriever init failed: {e}. Library search disabled for this node.")
+                self.library_enabled = False
         self.config_path = config_path
         prompt_files = {
             "theoretician_prompt": "theoretician_prompt.txt",
@@ -34,15 +40,12 @@ class Theoretician:
 
     def _library_search(self, query: str, top_k: int = 5):
         if self.library_retriever is None:
-            return "[library_search] disabled"
-        results = self.library_retriever.search(query=query, top_k=int(top_k) if top_k is not None else 5)
-        return self.library_retriever.format_for_llm(results)
-
-    def _library_parse(self, link: str, user_prompt: str, llm: str | None = None):
-        if self.library_retriever is None:
-            return "[library_parse] disabled"
-        results = self.library_retriever.parse(link=link, user_prompt=user_prompt, llm=llm)
-        return self.library_retriever.format_parsed_for_llm(results)
+            return "[library_search] arXiv search is not available."
+        try:
+            results = self.library_retriever.search(query=query, top_k=int(top_k) if top_k is not None else 5)
+            return self.library_retriever.format_for_llm(results)
+        except Exception as e:
+            return f"[library_search] failed: {e}"
 
     def _log_tool_call(self, tool_name: str, node_metadata: Dict[str, Any] | None):
         node_id = node_metadata.get("node_id", "") if node_metadata else ""
@@ -84,7 +87,6 @@ class Theoretician:
         }
         if self.library_enabled:
             tool_functions["library_search"] = self._library_search
-            tool_functions["library_parse"] = self._library_parse
 
         # Wrap raw tool functions with logging so we can trace tool usage per node
         system_prompt = self.theoretician_system_prompt
@@ -102,10 +104,6 @@ class Theoretician:
             wrapped_tool_functions["library_search"] = lambda **kwargs: (
                 self._log_tool_call("library_search", node_metadata),
                 self._library_search(**kwargs),
-            )[1]
-            wrapped_tool_functions["library_parse"] = lambda **kwargs: (
-                self._log_tool_call("library_parse", node_metadata),
-                self._library_parse(**kwargs),
             )[1]
 
         # Prepend a brief of all available skills so the LLM can decide to load any

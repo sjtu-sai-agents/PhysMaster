@@ -1,16 +1,16 @@
 # PhysMaster Configs
 
 llm:
-  base_url: "Your Base URL"
-  api_key: "Your Api Key"
-  model: "GPT-5"
+  base_url: "https://api.gpugeek.com/v1"
+  api_key: "u0rgjezq53e5tv01000dg95v0yqn2eecv02b7z3r"
+  model: "Vendor2/GPT-5.4"
 
 # Basics
 pipeline:
   query_file: "instructions/test.txt"
   output_path: "outputs"
-  parallel_processes: 3
-  max_rounds: 24
+  parallel_processes: 2
+  max_rounds: 10
 
 mcts:
   draft_expansion: 2
@@ -32,13 +32,13 @@ landau:
   library_enabled: true
   library: "LANDAU/library"
   
-  workflow_enabled: true
-  workflow: "LANDAU/workflow"
+  workflow_enabled: false
+  workflow: "LANDAU/workflow/cs_kernel.yaml"
 
   prior_enabled: true
   prior: "LANDAU/prior"
 
-  wisdom_save_enabled: true
+  wisdom_save_enabled: false
 
 visualization:
   enabled: true

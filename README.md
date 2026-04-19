@@ -1,89 +1,96 @@
 <div align="center">
 <br>
 
-<h1>PhysMaster</h1>
+<h1>🔬 PhysMaster</h1>
 
 <p><strong>Solve physics problems with LLM-driven Monte Carlo Tree Search</strong></p>
 
 <p>
-<a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+"></a>&nbsp;
-<a href="#setup"><img src="https://img.shields.io/badge/API-OpenAI%20Compatible-412991?style=flat-square&logo=openai&logoColor=white" alt="OpenAI Compatible"></a>&nbsp;
-<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22c55e?style=flat-square" alt="MIT License"></a>
+<a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10+"></a>&nbsp;
+<a href="#setup"><img src="https://img.shields.io/badge/API-OpenAI%20Compatible-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI Compatible"></a>&nbsp;
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge" alt="MIT License"></a>&nbsp;
+<a href="https://arxiv.org"><img src="https://img.shields.io/badge/arXiv-Search-b31b1b?style=for-the-badge&logo=arxiv&logoColor=white" alt="arXiv"></a>
 </p>
 
-<p><a href="README_CN.md">中文文档</a></p>
+<p>
+<a href="README_CN.md">中文文档</a>&nbsp;&nbsp;|&nbsp;&nbsp;<a href="extensions/README.md">Extensions</a>&nbsp;&nbsp;|&nbsp;&nbsp;<a href="feishu/README.md">Feishu Bot</a>
+</p>
 
+<br>
+
+<em>PhysMaster decomposes a physics problem into subtasks, explores multiple solution strategies <strong>in parallel</strong> through an MCTS search tree, evaluates and refines them with a Critic, and distills reusable knowledge &mdash; from a single node all the way up to a cross-task wisdom store.</em>
+
+<br>
 <br>
 </div>
 
-PhysMaster decomposes a physics problem into subtasks, explores multiple solution strategies **in parallel** through an MCTS search tree, evaluates and refines them with a Critic, and distills reusable knowledge at every level &mdash; from a single node all the way up to a cross-task wisdom store.
-
----
-
 ## Table of Contents
 
-- [Architecture](#architecture)
-- [Setup](#setup)
-- [Quick Start](#quick-start)
-- [Configuration Reference](#configuration-reference)
-- [Key Concepts](#key-concepts)
-  - [MCTS Search](#-mcts-search)
-  - [Memory System](#-memory-system)
-  - [Prior Knowledge (RAG)](#-prior-knowledge-rag)
-  - [Skills](#-skills)
-  - [Workflow Templates](#-workflow-templates)
-- [Project Structure](#project-structure)
-- [Feishu Bot](#-feishu-bot)
+<table>
+<tr>
+<td width="50%">
+
+- [Architecture](#-architecture)
+- [Quick Start](#-quick-start)
+- [Configuration](#-configuration)
+- [MCTS Search](#-mcts-search)
+- [Memory System](#-memory-system)
+
+</td>
+<td width="50%">
+
+- [Prior Knowledge (RAG)](#-prior-knowledge-rag)
+- [Skills & Workflow](#-skills--workflow)
+- [Project Structure](#-project-structure)
+- [Integrations](#-integrations)
 - [License](#license)
+
+</td>
+</tr>
+</table>
 
 ---
 
-## Architecture
+## 🏗 Architecture
 
 Five specialized agents collaborate inside an MCTS loop:
 
-```
- ╭──────────╮
- │  Query   │
- ╰────┬─────╯
-      ▼
- ╭──────────╮     ╭────────────────────────────────────────────────╮
- │ Clarifier│────▶│              MCTS  Search  Loop                │
- ╰──────────╯     │                                                │
-                  │   ┌────────────┐      ┌──────────────────┐     │
-                  │   │ Supervisor │─────▶│  Theoretician(s) │     │
-                  │   │  (dispatch)│      │  (solve, x N)    │     │
-                  │   └─────▲──────┘      └────────┬─────────┘     │
-                  │         │                      ▼               │
-                  │         │             ┌──────────────────┐     │
-                  │         └─────────────│     Critic       │     │
-                  │                       │   (evaluate)     │     │
-                  │                       └──────────────────┘     │
-                  │                                                │
-                  │   select ── expand ── evaluate                 │
-                  │           backpropagate ── prune               │
-                  ╰────────────────────┬───────────────────────────╯
-                                       ▼
-                                ╭────────────╮     ╭────────╮
-                                │ Summarizer │────▶│ Report │
-                                ╰────────────╯     ╰────────╯
+```mermaid
+graph LR
+    Q["📝 Query"] --> C["Clarifier"]
+    C --> MCTS["🔄 MCTS Search Loop"]
+    MCTS --> S["Summarizer"]
+    S --> R["📄 Report"]
+
+    subgraph MCTS["🔄 MCTS Search Loop"]
+        direction TB
+        SUP["Supervisor<br/><small>dispatch</small>"] --> THEO["Theoretician(s)<br/><small>solve × N</small>"]
+        THEO --> CR["Critic<br/><small>evaluate</small>"]
+        CR --> SUP
+    end
 ```
 
 | Agent | What it does |
 |:------|:-------------|
 | **Clarifier** | Parses the raw problem into a structured contract with subtasks |
 | **Supervisor** | Reads the tree context, picks the next subtask, decides draft vs. revise |
-| **Theoretician** | Solves a subtask &mdash; can call Python, skills, web search, and the prior knowledge base |
+| **Theoretician** | Solves a subtask &mdash; can call Python, skills, arXiv search, and the prior knowledge base |
 | **Critic** | Scores the solution (0&ndash;1) and returns a verdict: `complete` / `to_revise` / `to_redraft` |
 | **Summarizer** | Extracts the best trajectory from the tree and writes a Markdown report |
 
-> The loop stops when all subtasks are completed along some path, or the round budget runs out.
+> **The loop stops** when all subtasks are completed along some path, or the round budget runs out.
 
 ---
 
-## Setup
+## 🚀 Quick Start
 
-> Requires **Python 3.10+**
+> **Prerequisites:** Python 3.10+, an OpenAI-compatible LLM API key
+
+<table>
+<tr>
+<td>
+
+**1. Install**
 
 ```bash
 git clone https://github.com/AdrianMiao27/PHY_Master.git
@@ -91,40 +98,37 @@ cd PHY_Master
 pip install -r requirements.txt
 ```
 
-Then fill in `config.yaml` with your LLM endpoint (any OpenAI-compatible API):
+</td>
+<td>
+
+**2. Configure**
 
 ```yaml
+# config.yaml
 llm:
   base_url: "https://api.openai.com/v1"
   api_key: "sk-..."
   model: "gpt-4o"
 ```
 
----
+</td>
+</tr>
+</table>
 
-## Quick Start
-
-**1. Write a problem** &mdash; create a plain text file (LaTeX is fine):
+**3. Write your problem** in a text file (LaTeX is fine):
 
 ```
 instructions/my_problem.txt
 ```
 
-**2. Point the config at it:**
-
-```yaml
-pipeline:
-  query_file: "instructions/my_problem.txt"
-```
-
-**3. Run:**
+**4. Run:**
 
 ```bash
 python run.py                    # default config.yaml
 python run.py -c custom.yaml     # custom config
 ```
 
-**4. Check results** in `outputs/<task_name>/`:
+**5. Check results** in `outputs/<task_name>/`:
 
 ```
 outputs/<task_name>/
@@ -135,16 +139,16 @@ outputs/<task_name>/
  └─ visualization.html       Interactive MCTS tree (open in browser)
 ```
 
-> **Minimal mode** &mdash; to run without any external knowledge, set `skills.enabled: false` and all `landau.*_enabled: false` in the config.
+> **Minimal mode** &mdash; to run without external knowledge sources, set `skills.enabled: false` and all `landau.*_enabled: false`.
 
 ---
 
-## Configuration Reference
+## ⚙ Configuration
 
-All behavior lives in `config.yaml`. Only `llm` and `pipeline.query_file` are required; everything else has defaults.
+All behavior lives in `config.yaml`. Only `llm` and `pipeline.query_file` are required.
 
 <details>
-<summary><b>Full config with comments</b> (click to expand)</summary>
+<summary><b>📄 Full config with comments</b> (click to expand)</summary>
 
 ```yaml
 # ── LLM ──────────────────────────────────────────────
@@ -179,7 +183,7 @@ skills:
 
 # ── LANDAU knowledge modules ─────────────────────────
 landau:
-  library_enabled: true       # MCP web search & parse
+  library_enabled: true       # arXiv paper search
   library: "LANDAU/library"
   workflow_enabled: true       # problem-solving templates
   workflow: "LANDAU/workflow"
@@ -194,8 +198,10 @@ visualization:
 
 </details>
 
+**Key parameters:**
+
 | Key | Description | Default |
-|:----|:------------|:--------|
+|:----|:------------|:-------:|
 | `pipeline.max_rounds` | Total MCTS iterations before forced stop | `10` |
 | `pipeline.parallel_processes` | Theoretician subprocesses | `2` |
 | `mcts.draft_expansion` | Child nodes per draft round | `2` |
@@ -205,11 +211,20 @@ visualization:
 
 ---
 
-## Key Concepts
-
-### 🌳 MCTS Search
+## 🌳 MCTS Search
 
 PhysMaster does **not** solve linearly. It maintains a tree of solution attempts and navigates it like a game:
+
+```mermaid
+graph TD
+    SELECT["🎯 Select<br/><small>UCB1 picks best leaf</small>"]
+    EXPAND["🌱 Expand<br/><small>Spawn N Theoreticians</small>"]
+    EVALUATE["🧪 Evaluate<br/><small>Critic scores 0–1</small>"]
+    BACKPROP["⬆️ Backpropagate<br/><small>Reward flows to root</small>"]
+    PRUNE["✂️ Prune<br/><small>Close low-reward branches</small>"]
+
+    SELECT --> EXPAND --> EVALUATE --> BACKPROP --> PRUNE --> SELECT
+```
 
 | Step | What happens |
 |:-----|:-------------|
@@ -219,33 +234,47 @@ PhysMaster does **not** solve linearly. It maintains a tree of solution attempts
 | **Backpropagate** | Reward flows upward; high-reward nodes (&gt;0.8) reinforce ancestors with verified knowledge |
 | **Prune** | If beam width is set, low-reward nodes beyond the budget are closed |
 
-The search terminates when a complete path is found or `max_rounds` is hit. The best root-to-leaf path is extracted for the summary.
+> The search terminates when a complete path is found or `max_rounds` is hit. The best root-to-leaf path is extracted for the summary.
 
 ---
 
-### 🧠 Memory System
+## 🧠 Memory System
 
-The search tree carries knowledge forward at multiple scopes:
+The search tree carries knowledge forward at **three scopes**:
 
-- **Per-node experience** &nbsp; Each node stores the full Theoretician output &mdash; reasoning trace, tool calls, code. This raw detail is available to the Critic during evaluation and to direct descendants during expansion.
+<table>
+<tr>
+<td width="33%" align="center">
+<h4>Per-Node Experience</h4>
+<p><small>Full Theoretician output: reasoning, tool calls, code. Available to the Critic and direct descendants.</small></p>
+</td>
+<td width="33%" align="center">
+<h4>Compressed Knowledge</h4>
+<p><small>Distilled summary attached to each node after evaluation. Ancestors and siblings share insights through the tree context.</small></p>
+</td>
+<td width="33%" align="center">
+<h4>Cross-Task Wisdom</h4>
+<p><small>After a task completes, the best trajectory is distilled and written back to the FAISS index for future tasks to retrieve.</small></p>
+</td>
+</tr>
+</table>
 
-- **Compressed knowledge** &nbsp; After evaluation, the raw experience is distilled into a concise summary and attached to the node. When new nodes are expanded, the Supervisor assembles context from ancestor summaries and sibling insights so that later attempts build on what earlier branches learned.
-
-- **Cross-task wisdom** &nbsp; When a task completes, an LLM can optionally distill the best trajectory into a reusable wisdom chunk and write it back to the FAISS prior index. Future tasks then retrieve this wisdom alongside textbook references, creating a feedback loop that improves over time.
-
-High-reward nodes (&gt;0.8) trigger *cognitive reinforcement*: their verified knowledge is propagated to ancestor nodes during backpropagation, strengthening context quality for future expansions on the same branch.
+High-reward nodes (&gt;0.8) trigger **cognitive reinforcement**: their verified knowledge is propagated to ancestor nodes during backpropagation, strengthening context quality for future expansions.
 
 ---
 
-### 📚 Prior Knowledge (RAG)
+## 📚 Prior Knowledge (RAG)
 
 `LANDAU/prior/` provides a full retrieval-augmented generation pipeline:
 
 | Stage | File | What it does |
 |:------|:-----|:-------------|
-| **Ingest** | `prior_store.py` | PDF (via MinerU) / Markdown / Text &rarr; parent chunks (4k chars) &rarr; child chunks (1.2k chars) &rarr; `bge-small-en-v1.5` embeddings &rarr; FAISS `IndexFlatIP` |
-| **Retrieve** | `prior_retrieve.py` | Dense search + BM25, fused with Reciprocal Rank Fusion, then a weighted reranker. Optional HyDE for better recall |
+| **Ingest** | `prior_store.py` | PDF / Markdown / Text &rarr; parent-child chunks &rarr; `bge-small-en-v1.5` embeddings &rarr; FAISS index |
+| **Retrieve** | `prior_retrieve.py` | Dense + BM25, fused with Reciprocal Rank Fusion, then weighted reranking |
 | **Wisdom** | `wisdom_store.py` | Post-task LLM distillation &rarr; new chunk appended to the same index |
+
+<details>
+<summary><b>Ingestion commands</b></summary>
 
 ```bash
 # place source files in LANDAU/prior/source/, then:
@@ -254,7 +283,7 @@ python LANDAU/prior/prior_store.py --target path/to/file.pdf   # single file
 python LANDAU/prior/prior_store.py --reset                     # full rebuild
 ```
 
-Enable in config:
+</details>
 
 ```yaml
 landau:
@@ -264,12 +293,14 @@ landau:
 
 ---
 
-### 🔧 Skills
+## 🔧 Skills & Workflow
 
-Domain knowledge packages in `LANDAU/skills/`. Each skill is a folder with a `SKILL.md` (YAML frontmatter + methodology body). The Theoretician sees a brief of all installed skills and can load any on demand.
+### Skills
+
+Domain knowledge packages in `LANDAU/skills/`. The Theoretician sees a brief of all installed skills and can load any on demand.
 
 <details>
-<summary><b>12 built-in skills</b></summary>
+<summary><b>12 built-in skills</b> (click to expand)</summary>
 
 | Skill | Coverage |
 |:------|:---------|
@@ -288,21 +319,13 @@ Domain knowledge packages in `LANDAU/skills/`. Each skill is a folder with a `SK
 
 </details>
 
----
+### Workflow Templates
 
-### 📋 Workflow Templates
-
-YAML files in `LANDAU/workflow/` that define structured solving strategies. The Clarifier matches a template to the query by keyword overlap with its Goal field and uses it to produce a better subtask decomposition.
-
-```yaml
-landau:
-  workflow_enabled: true
-  workflow: "LANDAU/workflow"
-```
+YAML files in `LANDAU/workflow/` that define structured solving strategies. The Clarifier matches a template by keyword overlap with its Goal field.
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 PHY_Master/
@@ -322,7 +345,7 @@ PHY_Master/
 ├── LANDAU/                      Knowledge modules
 │   ├── skills/                    12 built-in physics skills
 │   ├── workflow/                  Problem-solving YAML templates
-│   ├── library/                   Web search & parse (MCP)
+│   ├── library/                   arXiv paper search & retrieval
 │   └── prior/                     FAISS RAG knowledge base
 │       ├── prior_store.py           Ingestion pipeline
 │       ├── prior_retrieve.py        Hybrid retriever
@@ -336,17 +359,54 @@ PHY_Master/
 │
 ├── prompts/                     14 prompt templates (7 agents)
 ├── instructions/                Query files
+├── extensions/                  Skill plugins for CC / OpenClaw
 ├── feishu/                      Feishu bot integration
 └── outputs/                     Generated at runtime
 ```
 
 ---
 
-## 🤖 Feishu Bot
+## 🔌 Integrations
+
+### Feishu Bot
 
 PhysMaster can run as a **Feishu (Lark) chatbot**. Send a physics problem in chat &rarr; bot replies "solving..." &rarr; pipeline runs in a background thread &rarr; summary is pushed back when done.
 
-See **[feishu/README.md](feishu/README.md)** for setup instructions.
+See **[feishu/README.md](feishu/README.md)** for setup.
+
+### Use as a Skill (Claude Code / OpenClaw)
+
+PhysMaster can be installed as a **skill plugin** for AI agent platforms:
+
+<table>
+<tr>
+<td width="50%">
+
+**Claude Code**
+
+```bash
+bash extensions/skills/physmaster/install_cc.sh
+```
+
+Then use `/physmaster` in any session.
+
+</td>
+<td width="50%">
+
+**OpenClaw**
+
+```bash
+bash extensions/skills/physmaster/install_openclaw.sh \
+  /path/to/evomaster/skills
+```
+
+Then `use_skill(name="physmaster", ...)` in agents.
+
+</td>
+</tr>
+</table>
+
+See **[extensions/README.md](extensions/README.md)** for details.
 
 ---
 

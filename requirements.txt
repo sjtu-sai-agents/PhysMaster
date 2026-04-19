@@ -4,7 +4,7 @@
 #
 #  Organized by tier:
 #    Core          always required
-#    Library       web search & parse (MCP)
+#    Library       arXiv paper search (no extra deps, uses stdlib urllib)
 #    Prior         FAISS-backed RAG knowledge base (optional)
 #    Prior Build   offline index building tool (optional)
 #    Feishu        chatbot deployment (optional)
@@ -15,9 +15,6 @@
 # ── Core pipeline ────────────────────────────────────────────
 openai>=1.40.0
 PyYAML>=6.0
-
-# ── Library search (LANDAU/library) ──────────────────────────
-requests>=2.28.0
 
 # ── Prior retrieval (LANDAU/prior — optional) ────────────────
 #    Set landau.prior_enabled: false in config to skip these.

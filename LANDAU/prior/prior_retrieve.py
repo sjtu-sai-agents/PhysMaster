@@ -35,7 +35,7 @@ CFG = {
         "phrase_weight": 0.05,
     },
     "hyde": {
-        "enabled": True,
+        "enabled": False,
         "api_key": os.environ.get("HYDE_API_KEY", ""),
         "base_url": os.environ.get("HYDE_BASE_URL", ""),
         "model": os.environ.get("HYDE_MODEL", ""),
@@ -95,17 +95,12 @@ class PriorRetriever:
         self._hyde_client = None
         hyde_cfg = CFG["hyde"]
         if hyde_cfg["enabled"] and hyde_cfg["api_key"] and hyde_cfg["base_url"] and hyde_cfg["model"]:
-            try:
-                from openai import OpenAI
-                self._hyde_client = OpenAI(
-                    api_key=hyde_cfg["api_key"],
-                    base_url=hyde_cfg["base_url"],
-                )
-                print(f"[*] HyDE enabled (model: {hyde_cfg['model']})")
-            except ImportError:
-                print("[!] openai package not installed, HyDE disabled.")
-        else:
-            print("[*] HyDE disabled (set HYDE_API_KEY, HYDE_BASE_URL, HYDE_MODEL env vars to enable)")
+            from openai import OpenAI
+            self._hyde_client = OpenAI(
+                api_key=hyde_cfg["api_key"],
+                base_url=hyde_cfg["base_url"],
+            )
+
 
 
     def _load_knowledge(self) -> Dict[str, Dict[str, Any]]:

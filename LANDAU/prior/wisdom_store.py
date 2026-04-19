@@ -53,14 +53,20 @@ class WisdomStore:
         self._emb_model: Optional[SentenceTransformer] = None
 
 
-    def _get_emb_model(self) -> SentenceTransformer:
-        """Lazy-load the sentence transformer model on first use."""
+    def _get_emb_model(self) -> SentenceTransformer | None:
+        """Lazy-load the sentence transformer model on first use.
+        Returns None if unavailable."""
         if self._emb_model is None:
             if SentenceTransformer is None:
-                raise RuntimeError("sentence-transformers is required for WisdomStore")
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            self._emb_model = SentenceTransformer("BAAI/bge-small-en-v1.5", device=device)
+                print("[Wisdom] Warning: sentence-transformers not installed. Wisdom will be saved to chunks.jsonl but not indexed.")
+                return None
+            try:
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                self._emb_model = SentenceTransformer("BAAI/bge-small-en-v1.5", device=device)
+            except Exception as e:
+                print(f"[Wisdom] Warning: Failed to load embedding model: {e}. Wisdom will be saved to chunks.jsonl but not indexed.")
+                return None
         return self._emb_model
 
     def extract_wisdom(
@@ -108,6 +114,16 @@ class WisdomStore:
             print("[Wisdom] Empty wisdom text, skipping store.")
             return
 
+        # Check if embedding model is available before doing anything
+        emb_model = self._get_emb_model()
+        if emb_model is None:
+            print("[Wisdom] Embedding model unavailable. Skipping wisdom storage (no index means no retrieval).")
+            return
+
+        if faiss is None:
+            print("[Wisdom] faiss not available. Skipping wisdom storage (no index means no retrieval).")
+            return
+
         year = datetime.datetime.now().year
         chunk_id = f"wisdom:{task_name}:0001"
         context_prefix = f"[Task Wisdom | {task_name}] "
@@ -143,17 +159,12 @@ class WisdomStore:
         print(f"[Wisdom] Chunk appended to {self.chunks_path}")
 
         embed_text = context_prefix + wisdom_text
-        emb_model = self._get_emb_model()
         embedding = emb_model.encode(
             [embed_text],
             normalize_embeddings=True,
             convert_to_numpy=True,
         )
         embedding = np.asarray(embedding, dtype="float32")
-
-        if faiss is None:
-            print("[Wisdom] faiss not available, skipping index update.")
-            return
 
         if self.faiss_path.exists():
             index = faiss.read_index(str(self.faiss_path))
