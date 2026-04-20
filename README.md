@@ -53,18 +53,18 @@ flowchart LR
     Q --> CL --> MCTS --> SUM
 
     style INPUT fill:none,stroke:none
-    style STAGE1 fill:#e3f2fd,stroke:#1976d2,stroke-width:2.5px,rx:8
-    style MCTS fill:#fff3e0,stroke:#f57c00,stroke-width:3px,rx:8
-    style STAGE3 fill:#e8f5e9,stroke:#388e3c,stroke-width:2.5px,rx:8
+    style STAGE1 fill:#90caf9,stroke:#1565c0,stroke-width:2.5px,rx:8
+    style MCTS fill:#ffcc80,stroke:#e65100,stroke-width:3px,rx:8
+    style STAGE3 fill:#a5d6a7,stroke:#2e7d32,stroke-width:2.5px,rx:8
 
-    style Q fill:#bbdefb,stroke:#1565c0,stroke-width:2px
-    style CL fill:#bbdefb,stroke:#1565c0,stroke-width:2px
-    style SUP fill:#ffe0b2,stroke:#e65100,stroke-width:2px
-    style THEO fill:#ffe0b2,stroke:#e65100,stroke-width:2px
-    style CRIT fill:#ffe0b2,stroke:#e65100,stroke-width:2px
-    style SUM fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style Q fill:#64b5f6,stroke:#0d47a1,stroke-width:2px,color:#0d47a1
+    style CL fill:#64b5f6,stroke:#0d47a1,stroke-width:2px,color:#0d47a1
+    style SUP fill:#ffb74d,stroke:#bf360c,stroke-width:2px,color:#bf360c
+    style THEO fill:#ffb74d,stroke:#bf360c,stroke-width:2px,color:#bf360c
+    style CRIT fill:#ffb74d,stroke:#bf360c,stroke-width:2px,color:#bf360c
+    style SUM fill:#81c784,stroke:#1b5e20,stroke-width:2px,color:#1b5e20
 
-    linkStyle default stroke:#607d8b,stroke-width:3px
+    linkStyle default stroke:#b0bec5,stroke-width:3px
 ```
 
 <table>
