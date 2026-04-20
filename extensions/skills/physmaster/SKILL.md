@@ -101,13 +101,13 @@ print(result["summary"])
 Use the `run_script` action to execute `scripts/run_physmaster.py`:
 
 ```
-run_script: run_physmaster --query "your physics problem" --config config.yaml
+python {baseDir}/scripts/run_physmaster.py --query "your physics problem" --config config.yaml
 ```
 
 Or call `scripts/arxiv_search.py` for standalone arXiv search:
 
 ```
-run_script: arxiv_search --query "quantum error correction" --top_k 5
+python {baseDir}/scripts/arxiv_search.py --query "quantum error correction" --top_k 5
 ```
 
 ## Tools Available to the Theoretician

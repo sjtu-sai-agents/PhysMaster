@@ -3,14 +3,15 @@
 llm:
   base_url: "https://api.gpugeek.com/v1"
   api_key: "u0rgjezq53e5tv01000dg95v0yqn2eecv02b7z3r"
-  model: "Vendor2/GPT-5.4"
+  model: "Vendor2/GPT-5"
 
 # Basics
 pipeline:
-  query_file: "instructions/test.txt"
+  query_file: "instructions/query.txt"
   output_path: "outputs"
   parallel_processes: 2
-  max_rounds: 10
+  max_rounds: 24
+  debug_logging: true
 
 mcts:
   draft_expansion: 2

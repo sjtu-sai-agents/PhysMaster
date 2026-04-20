@@ -70,9 +70,9 @@ CFG = {
             "min_chars": 120
         },
         "parent": {
-            "max_chars": 4000,
-            "overlap_chars": 400,
-            "min_chars": 300
+            "max_chars": 2400,
+            "overlap_chars": 300,
+            "min_chars": 200
         }
     },
     "conversion": {

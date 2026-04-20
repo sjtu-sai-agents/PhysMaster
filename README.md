@@ -7,7 +7,7 @@
 
 <p>
 <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10+"></a>&nbsp;
-<a href="#setup"><img src="https://img.shields.io/badge/API-OpenAI%20Compatible-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI Compatible"></a>&nbsp;
+<a href="#-quick-start"><img src="https://img.shields.io/badge/API-OpenAI%20Compatible-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI Compatible"></a>&nbsp;
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge" alt="MIT License"></a>&nbsp;
 <a href="https://arxiv.org"><img src="https://img.shields.io/badge/arXiv-Search-b31b1b?style=for-the-badge&logo=arxiv&logoColor=white" alt="arXiv"></a>
 </p>
@@ -17,66 +17,62 @@
 </p>
 
 <br>
-
-<em>PhysMaster decomposes a physics problem into subtasks, explores multiple solution strategies <strong>in parallel</strong> through an MCTS search tree, evaluates and refines them with a Critic, and distills reusable knowledge &mdash; from a single node all the way up to a cross-task wisdom store.</em>
-
-<br>
-<br>
 </div>
 
-## Table of Contents
-
-<table>
-<tr>
-<td width="50%">
-
-- [Architecture](#-architecture)
-- [Quick Start](#-quick-start)
-- [Configuration](#-configuration)
-- [MCTS Search](#-mcts-search)
-- [Memory System](#-memory-system)
-
-</td>
-<td width="50%">
-
-- [Prior Knowledge (RAG)](#-prior-knowledge-rag)
-- [Skills & Workflow](#-skills--workflow)
-- [Project Structure](#-project-structure)
-- [Integrations](#-integrations)
-- [License](#license)
-
-</td>
-</tr>
-</table>
+PhysMaster decomposes a physics problem into subtasks, explores multiple solution strategies **in parallel** through an MCTS search tree, evaluates and refines them with a Critic, and distills reusable knowledge &mdash; from a single node all the way up to a cross-task wisdom store.
 
 ---
 
 ## 🏗 Architecture
 
-Five specialized agents collaborate inside an MCTS loop:
-
 ```mermaid
-graph LR
-    Q["📝 Query"] --> C["Clarifier"]
-    C --> MCTS["🔄 MCTS Search Loop"]
-    MCTS --> S["Summarizer"]
-    S --> R["📄 Report"]
-
-    subgraph MCTS["🔄 MCTS Search Loop"]
+flowchart LR
+    subgraph INPUT [" "]
         direction TB
-        SUP["Supervisor<br/><small>dispatch</small>"] --> THEO["Theoretician(s)<br/><small>solve × N</small>"]
-        THEO --> CR["Critic<br/><small>evaluate</small>"]
-        CR --> SUP
+        Q["📝 <b>Query</b><br/><i>physics problem</i>"]
     end
+
+    subgraph STAGE1 ["Stage 1"]
+        direction TB
+        CL["🔍 <b>Clarifier</b><br/><i>decompose into<br/>subtasks</i>"]
+    end
+
+    subgraph MCTS ["Stage 2 — MCTS Search Loop"]
+        direction TB
+        SUP["🎯 <b>Supervisor</b><br/><i>select node, dispatch<br/>draft or revise</i>"]
+        THEO["⚡ <b>Theoretician × N</b><br/><i>solve in parallel<br/>Python · Skills · arXiv</i>"]
+        CRIT["🧪 <b>Critic</b><br/><i>score 0–1, decide<br/>complete / revise / redraft</i>"]
+        SUP --> THEO --> CRIT --> SUP
+    end
+
+    subgraph STAGE3 ["Stage 3"]
+        direction TB
+        SUM["📄 <b>Summarizer</b><br/><i>best trajectory<br/>→ markdown report</i>"]
+    end
+
+    Q --> CL --> MCTS --> SUM
+
+    style INPUT fill:none,stroke:none
+    style STAGE1 fill:#f0f4ff,stroke:#4a6cf7,stroke-width:1px,rx:8
+    style MCTS fill:#fff8f0,stroke:#f7944a,stroke-width:2px,rx:8
+    style STAGE3 fill:#f0fff4,stroke:#4af76a,stroke-width:1px,rx:8
 ```
 
-| Agent | What it does |
-|:------|:-------------|
-| **Clarifier** | Parses the raw problem into a structured contract with subtasks |
-| **Supervisor** | Reads the tree context, picks the next subtask, decides draft vs. revise |
-| **Theoretician** | Solves a subtask &mdash; can call Python, skills, arXiv search, and the prior knowledge base |
-| **Critic** | Scores the solution (0&ndash;1) and returns a verdict: `complete` / `to_revise` / `to_redraft` |
-| **Summarizer** | Extracts the best trajectory from the tree and writes a Markdown report |
+<table>
+<tr>
+<td>
+
+**Agent** | **Role**
+:--|:--
+🔍 **Clarifier** | Parse problem into structured subtasks
+🎯 **Supervisor** | Read tree context, pick next subtask, decide draft vs. revise
+⚡ **Theoretician** | Solve subtask with Python, skills, arXiv, prior knowledge
+🧪 **Critic** | Score solution (0&ndash;1): `complete` · `to_revise` · `to_redraft`
+📄 **Summarizer** | Extract best trajectory, write markdown report
+
+</td>
+</tr>
+</table>
 
 > **The loop stops** when all subtasks are completed along some path, or the round budget runs out.
 
@@ -133,13 +129,19 @@ python run.py -c custom.yaml     # custom config
 ```
 outputs/<task_name>/
  ├─ contract.json            Structured problem decomposition
- ├─ node_1/                  Theoretician output for MCTS node 1
- ├─ node_2/                  ...
  ├─ summary.md               Final solution report
- └─ visualization.html       Interactive MCTS tree (open in browser)
+ ├─ visualization.html       Interactive MCTS tree (open in browser)
+ ├─ log/                     Detailed logs (if debug_logging enabled)
+ │   ├─ round_0.json           Round-level dispatch decisions
+ │   ├─ node_1/
+ │   │   └─ node_log.json      Input/output/evaluation for node 1
+ │   └─ summary.json           Tree statistics
+ ├─ node_1/                  Theoretician working directory for node 1
+ ├─ node_2/                  ...
+ └─ ...
 ```
 
-> **Minimal mode** &mdash; to run without external knowledge sources, set `skills.enabled: false` and all `landau.*_enabled: false`.
+> 💡 **Minimal mode** &mdash; run without external knowledge: set `skills.enabled: false` and all `landau.*_enabled: false`.
 
 ---
 
@@ -163,6 +165,7 @@ pipeline:
   output_path: "outputs"
   max_rounds: 10              # MCTS round budget
   parallel_processes: 2       # concurrent Theoretician workers
+  debug_logging: false        # detailed per-node logs in outputs/<task>/log/
 
 # ── MCTS ─────────────────────────────────────────────
 mcts:
@@ -204,6 +207,7 @@ visualization:
 |:----|:------------|:-------:|
 | `pipeline.max_rounds` | Total MCTS iterations before forced stop | `10` |
 | `pipeline.parallel_processes` | Theoretician subprocesses | `2` |
+| `pipeline.debug_logging` | Write detailed per-node JSON logs | `false` |
 | `mcts.draft_expansion` | Child nodes per draft round | `2` |
 | `mcts.revise_expansion` | Child nodes per revise round | `2` |
 | `mcts.exploration_constant` | UCB1 exploration term | `1.414` |
@@ -215,26 +219,15 @@ visualization:
 
 PhysMaster does **not** solve linearly. It maintains a tree of solution attempts and navigates it like a game:
 
-```mermaid
-graph TD
-    SELECT["🎯 Select<br/><small>UCB1 picks best leaf</small>"]
-    EXPAND["🌱 Expand<br/><small>Spawn N Theoreticians</small>"]
-    EVALUATE["🧪 Evaluate<br/><small>Critic scores 0–1</small>"]
-    BACKPROP["⬆️ Backpropagate<br/><small>Reward flows to root</small>"]
-    PRUNE["✂️ Prune<br/><small>Close low-reward branches</small>"]
-
-    SELECT --> EXPAND --> EVALUATE --> BACKPROP --> PRUNE --> SELECT
-```
-
 | Step | What happens |
 |:-----|:-------------|
 | **Select** | UCB1 picks the most promising leaf, balancing reward vs. exploration |
-| **Expand** | N Theoretician workers spawn in parallel and produce child nodes |
+| **Expand** | N Theoretician workers spawn **in parallel** and produce child nodes |
 | **Evaluate** | Critic scores each child on a 0&ndash;1 scale |
 | **Backpropagate** | Reward flows upward; high-reward nodes (&gt;0.8) reinforce ancestors with verified knowledge |
 | **Prune** | If beam width is set, low-reward nodes beyond the budget are closed |
 
-> The search terminates when a complete path is found or `max_rounds` is hit. The best root-to-leaf path is extracted for the summary.
+The search terminates when a complete path is found or `max_rounds` is hit. The best root-to-leaf path is extracted for the summary.
 
 ---
 
@@ -245,21 +238,30 @@ The search tree carries knowledge forward at **three scopes**:
 <table>
 <tr>
 <td width="33%" align="center">
-<h4>Per-Node Experience</h4>
-<p><small>Full Theoretician output: reasoning, tool calls, code. Available to the Critic and direct descendants.</small></p>
+
+**🔬 Per-Node Experience**
+
+Full Theoretician output: reasoning, tool calls, code. Available to the Critic for evaluation, then compressed into knowledge.
+
 </td>
 <td width="33%" align="center">
-<h4>Compressed Knowledge</h4>
-<p><small>Distilled summary attached to each node after evaluation. Ancestors and siblings share insights through the tree context.</small></p>
+
+**📦 Compressed Knowledge**
+
+Distilled summary attached to each node after evaluation. Ancestors and siblings share insights through the tree context.
+
 </td>
 <td width="33%" align="center">
-<h4>Cross-Task Wisdom</h4>
-<p><small>After a task completes, the best trajectory is distilled and written back to the FAISS index for future tasks to retrieve.</small></p>
+
+**🌐 Cross-Task Wisdom**
+
+After a task completes, the best trajectory is distilled and written back to the FAISS index for future tasks to retrieve.
+
 </td>
 </tr>
 </table>
 
-High-reward nodes (&gt;0.8) trigger **cognitive reinforcement**: their verified knowledge is propagated to ancestor nodes during backpropagation, strengthening context quality for future expansions.
+> High-reward nodes (&gt;0.8) trigger **cognitive reinforcement**: their verified knowledge is propagated to ancestor nodes during backpropagation, strengthening context quality for future expansions.
 
 ---
 
@@ -272,6 +274,8 @@ High-reward nodes (&gt;0.8) trigger **cognitive reinforcement**: their verified 
 | **Ingest** | `prior_store.py` | PDF / Markdown / Text &rarr; parent-child chunks &rarr; `bge-small-en-v1.5` embeddings &rarr; FAISS index |
 | **Retrieve** | `prior_retrieve.py` | Dense + BM25, fused with Reciprocal Rank Fusion, then weighted reranking |
 | **Wisdom** | `wisdom_store.py` | Post-task LLM distillation &rarr; new chunk appended to the same index |
+
+**Pre-built knowledge base**: [PhysLib on HuggingFace](https://huggingface.co/datasets/Kev1n-J1N/PhysLib) — 78k chunks from 74 physics textbooks (Landau & Lifshitz, Weinberg QFT, String Theory, Condensed Matter, GR/Cosmology, etc.)
 
 <details>
 <summary><b>Ingestion commands</b></summary>
@@ -397,7 +401,7 @@ Then use `/physmaster` in any session.
 
 ```bash
 bash extensions/skills/physmaster/install_openclaw.sh \
-  /path/to/evomaster/skills
+  /path/to/skills
 ```
 
 Then `use_skill(name="physmaster", ...)` in agents.

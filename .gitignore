@@ -1,6 +1,8 @@
 # User-requested ignores
 agent/librarian/Pasa-X-papermaster_new/data/
 LANDAU/prior/source/
+LANDAU/prior/out/
+huggingface/
 LANDAU/prior/index/
 LANDAU/prior/knowledge/
 

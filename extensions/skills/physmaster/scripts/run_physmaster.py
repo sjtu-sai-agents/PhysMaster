@@ -18,8 +18,22 @@ import os
 import sys
 from pathlib import Path
 
+
+def _find_project_root():
+    """Find PHY_Master project root by looking for marker files."""
+    p = Path(__file__).resolve().parent
+    for _ in range(10):
+        if (p / "core").is_dir() and (p / "run.py").is_file():
+            return p
+        p = p.parent
+    raise RuntimeError(
+        "Cannot find PHY_Master project root. "
+        "Expected to find 'core/' directory and 'run.py' file."
+    )
+
+
 # Ensure project root is on sys.path
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = _find_project_root()
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 os.chdir(str(_PROJECT_ROOT))

@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from utils.llm_client import call_model, call_model_without_tools
 from utils.tool_schemas import LIBRARY_SEARCH_TOOL, PRIOR_SEARCH_TOOL
+from utils.node_logger import PipelineLogger
 
 from LANDAU.library import LibraryRetriever
 from .mcts import MCTSNode, MCTSTree
@@ -53,7 +54,8 @@ class SupervisorOrchestrator:
         active_beam_width: int = 0,
         landau_library_enabled: bool = True,
         landau_prior_enabled: bool = True,
-        config_path: str = 'config.yaml'
+        config_path: str = 'config.yaml',
+        debug_logging: bool = False,
     ):
         self.structured_problem = structured_problem
         self.task_dir = task_dir
@@ -117,7 +119,7 @@ class SupervisorOrchestrator:
             "decision": "complete",
             "reward": 0.0,
             "verdict": "accept",
-            "summary": "Virtual root initialization.",
+            "analysis": "Virtual root initialization.",
         }
         self.tree.root.supervisor_dispatch = {"node_type": "virtual", "description": "Virtual Root"}
         self.tree.root.supervisor_feedback = dict(self.tree.root.supervisor_dispatch)
@@ -127,6 +129,8 @@ class SupervisorOrchestrator:
 
         self.node_id_counter = 1
         self.round_counter = 0
+        self.debug_logging = bool(debug_logging)
+        self.logger = PipelineLogger(self.task_dir) if self.debug_logging else None
 
         # Global pool is shared across supervisor instances to avoid spawn overhead
         global _GLOBAL_POOL
@@ -192,9 +196,6 @@ class SupervisorOrchestrator:
             dispatch = self._resolve_dispatch(selected_node)
             if dispatch.get("stop_search", False):
                 break
-                
-            if dispatch.get("node_type") == "draft" and selected_node.is_compressed:
-                selected_node.experience = []
 
             selected_node.selected_round = self.round_counter
             new_nodes = self._expand_and_simulate_nodes(
@@ -206,6 +207,16 @@ class SupervisorOrchestrator:
                 supervisor_dispatch=dispatch["supervisor_dispatch"],
                 round_index=self.round_counter,
             )
+
+            # Log this round
+            if self.logger:
+                self.logger.log_round(
+                    round_index=self.round_counter,
+                    selected_node_id=selected_node.node_id,
+                    dispatch=dispatch,
+                    new_node_ids=[n.node_id for n in new_nodes],
+                )
+
             self.round_counter += 1
 
             # Early termination: all subtasks completed along one path
@@ -224,6 +235,10 @@ class SupervisorOrchestrator:
             "tree_stats": self.tree.get_tree_stats(),
             "trajectory": trajectory,
         }
+
+        if self.logger:
+            self.logger.save_summary(summary)
+
         return summary
 
     def _resolve_dispatch(self, node: MCTSNode) -> Dict[str, Any]:
@@ -396,15 +411,13 @@ class SupervisorOrchestrator:
             }.get(decision, "refine")
 
         reward = self._extract_reward(parsed)
-        summary = self._to_natural_text(parsed.get("summary"))
         opinion = self._to_natural_text(parsed.get("opinion"))
-        analysis_text = self._to_natural_text(parsed.get("analysis") or summary or opinion)
+        analysis_text = self._to_natural_text(parsed.get("analysis") or parsed.get("summary") or opinion)
 
         return {
             "decision": decision,
             "verdict": verdict,
             "reward": reward,
-            "summary": summary,
             "opinion": opinion,
             "analysis": analysis_text,
             "code": code,
@@ -425,51 +438,22 @@ class SupervisorOrchestrator:
         if parent and parent.status == "completed_closed":
             return []
 
-        new_nodes: List[MCTSNode] = []
-        outputs: List[Tuple[MCTSNode, Dict[str, Any]]] = []
-
         subtask_id = int(subtask.get("id", 1))
         subtask_type = str(subtask.get("subtask_type", "reasoning"))
 
         global _GLOBAL_POOL
         if run_theo_node is None:
             raise RuntimeError("run_theo_node is unavailable.")
+
+        # Step 1: Pre-create all child nodes and add them to the tree
+        # This allows get_context_for_node(child) to see the parent's knowledge
+        child_nodes: List[MCTSNode] = []
         futures = []
-        node_ids: List[int] = []
 
         for _ in range(max(1, int(count))):
             node_id = int(self.node_id_counter)
             self.node_id_counter += 1
-            node_ids.append(node_id)
 
-            payload = {
-                "depth": parent.get_depth() + 1,
-                "node_id": node_id,
-                "node_type": node_type,
-                "structured_problem": self.structured_problem,
-                "subtask": {
-                    "id": subtask_id,
-                    "description": augmented_description,
-                    "subtask_type": subtask_type,
-                    "input": subtask.get("input"),
-                    "expected_output": subtask.get("expected_output"),
-                },
-                "task_dir": self.task_dir,
-                "hcc_context": self.tree.get_context_for_node(parent),
-                "library_enabled": self.landau_library_enabled,
-                "prior_knowledge": self.prior_knowledge,
-            }
-            print(
-                f"[Supervisor] "
-                f"(node_id={node_id} subtask_id={subtask_id} node_type={node_type}) "
-                f"task assigned 📖"
-            )
-            futures.append(_GLOBAL_POOL.submit(run_theo_node, payload, self.config_path))
-
-        wait(futures)
-
-        for idx, future in enumerate(futures):
-            node_id = node_ids[idx]
             child_node = MCTSNode(
                 subtask_id=subtask_id,
                 subtask_payload=subtask,
@@ -485,7 +469,53 @@ class SupervisorOrchestrator:
 
             self.tree.add_node(child_node)
             parent.add_child(child_node)
-            new_nodes.append(child_node)
+            child_nodes.append(child_node)
+
+            # Step 2: Build context for this child (now parent's knowledge is visible)
+            hcc_context = self.tree.get_context_for_node(child_node)
+
+            # For revise nodes, highlight parent's critic feedback at the top of the prompt
+            parent_feedback = None
+            if node_type == "revise" and parent.evaluation:
+                parent_feedback = {
+                    "decision": parent.evaluation.get("decision"),
+                    "reward": parent.evaluation.get("reward"),
+                    "opinion": parent.evaluation.get("opinion"),
+                    "analysis": parent.evaluation.get("analysis"),
+                }
+
+            payload = {
+                "depth": parent.get_depth() + 1,
+                "node_id": node_id,
+                "node_type": node_type,
+                "structured_problem": self.structured_problem,
+                "subtask": {
+                    "id": subtask_id,
+                    "description": augmented_description,
+                    "subtask_type": subtask_type,
+                    "input": subtask.get("input"),
+                    "expected_output": subtask.get("expected_output"),
+                },
+                "task_dir": self.task_dir,
+                "hcc_context": hcc_context,
+                "parent_critic_feedback": parent_feedback,
+                "library_enabled": self.landau_library_enabled,
+                "prior_knowledge": self.prior_knowledge,
+            }
+            print(
+                f"[Supervisor] "
+                f"(node_id={node_id} subtask_id={subtask_id} node_type={node_type}) "
+                f"task assigned 📖"
+            )
+            futures.append(_GLOBAL_POOL.submit(run_theo_node, payload, self.config_path))
+
+        # Step 3: Wait for all Theoretician workers to complete
+        wait(futures)
+
+        # Step 4: Collect results and attach to nodes
+        outputs: List[Tuple[MCTSNode, Dict[str, Any]]] = []
+        for idx, future in enumerate(futures):
+            child_node = child_nodes[idx]
 
             try:
                 node_output = future.result()
@@ -498,7 +528,7 @@ class SupervisorOrchestrator:
                     "decision": "to_revise",
                     "verdict": "refine",
                     "reward": 0.0,
-                    "summary": "Theoretician execution failed.",
+                    "analysis": "Theoretician execution failed.",
                     "opinion": str(e),
                 }
                 child_node.reward = 0.0
@@ -510,12 +540,29 @@ class SupervisorOrchestrator:
             child_node.log_path = node_output.get("log_path")
             outputs.append((child_node, node_output))
 
-        for child_node, _ in outputs:
+        for child_node, node_output in outputs:
+            node_log = self.logger.get_node_logger(child_node.node_id) if self.logger else None
+            if node_log:
+                node_log.log_input(
+                    subtask_id=child_node.subtask_id,
+                    node_type=child_node.node_type,
+                    subtask_description=child_node.subtask_description,
+                    context=self.tree.get_context_for_node(child_node),
+                    prior_knowledge=self.prior_knowledge,
+                )
+                node_log.log_output(result=child_node.result)
+                for tc in node_output.get("tool_calls", []):
+                    node_log.log_tool_call(
+                        tool_name=tc.get("tool", ""),
+                        arguments=tc.get("arguments", {}),
+                        result=tc.get("result", ""),
+                    )
+
             try:
-                evaluation = self._call_critic(child_node) or ""
+                evaluation = self._call_critic(child_node) or {}
             except Exception:
-                evaluation = ""
-                print("[Critic] call failed.")        
+                evaluation = {}
+                print("[Critic] call failed.")
             child_node.evaluation = evaluation
             reward = self._extract_reward(evaluation)
             child_node.reward = reward
@@ -523,7 +570,14 @@ class SupervisorOrchestrator:
         # After critic: distill raw experience into compressed knowledge
             child_node.knowledge = self._call_promoter(child_node)
             child_node.is_compressed = True
-                
+            # Free raw experience now that knowledge is extracted
+            child_node.experience = []
+
+            if node_log:
+                node_log.log_evaluation(evaluation, reward)
+                node_log.log_knowledge(child_node.knowledge)
+                node_log.save()
+
             print(
                 f"[Critic] "
                 f"(node_id={child_node.node_id} subtask_id={child_node.subtask_id} node_type={child_node.node_type}) "
@@ -533,15 +587,15 @@ class SupervisorOrchestrator:
             child_node.backpropagate(reward)
 
         # Mark parent as expanded so future selection skips it
-        if new_nodes:
+        if child_nodes:
             self._apply_beam_pruning(parent.get_depth() + 1)
             if parent.status not in {"completed_closed", "failed"}:
                 parent.status = "completed_expended"
 
-        return new_nodes
+        return child_nodes
 
     # Tools
-    def _get_prior_retriever(self) -> PriorRetriever | None:
+    def _get_prior_retriever(self) -> Optional[Any]:
         """Lazy-init the prior retriever. Returns None if unavailable."""
         if PriorRetriever is None:
             if self.landau_prior_enabled:
@@ -557,7 +611,7 @@ class SupervisorOrchestrator:
                 return None
         return self._prior_retriever
 
-    def _get_library_retriever(self) -> LibraryRetriever | None:
+    def _get_library_retriever(self) -> Optional[Any]:
         """Lazy-init the library retriever. Returns None if unavailable."""
         if self._library_retriever is None:
             try:

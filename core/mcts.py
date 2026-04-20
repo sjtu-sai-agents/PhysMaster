@@ -122,22 +122,60 @@ class MCTSNode:
 
     def _apply_cognitive_reinforcement(self, source: "MCTSNode", target: "MCTSNode"):
         """Tag ancestor nodes with verified knowledge from a high-reward
-        descendant, capped at 3000 chars to bound memory growth."""
+        descendant. Only the original knowledge (not nested verified blocks)
+        is propagated to prevent exponential growth."""
         if not source.knowledge:
             return
 
-        verification_tag = f"[Verified by Node {source.node_id}]"
+        # Extract only the original knowledge, strip out any [Verified by ...] blocks
+        original_knowledge = self._extract_original_knowledge(source.knowledge)
+        if not original_knowledge.strip():
+            return
+
+        verification_tag = f"## Verified Knowledge from Node {source.node_id}"
 
         if verification_tag not in (target.knowledge or ""):
-            new_insight = f"\n{verification_tag}: {source.knowledge}"
+            new_insight = f"\n{verification_tag}\n{original_knowledge}"
 
             if not target.knowledge:
-                target.knowledge = f"Initial hypothesis confirmed. {new_insight}"
+                target.knowledge = new_insight.strip()
             else:
                 combined = target.knowledge + new_insight
-                target.knowledge = combined[-3000:]
+                # Cap at 5000 chars to prevent unbounded growth
+                if len(combined) > 5000:
+                    target.knowledge = combined[-5000:]
+                else:
+                    target.knowledge = combined
 
             target.is_compressed = True
+
+    def _extract_original_knowledge(self, knowledge: str) -> str:
+        """Extract the original knowledge portion, removing any nested
+        [Verified by ...] or ## Verified Knowledge blocks."""
+        if not knowledge:
+            return ""
+
+        lines = knowledge.split('\n')
+        result = []
+        skip_block = False
+
+        for line in lines:
+            # Skip old-style [Verified by Node X] blocks
+            if line.strip().startswith('[Verified by Node'):
+                skip_block = True
+                continue
+            # Skip new-style ## Verified Knowledge blocks
+            if line.strip().startswith('## Verified Knowledge from Node'):
+                skip_block = True
+                continue
+            # End of a verified block when we hit another section marker or empty line after content
+            if skip_block and (line.strip().startswith('##') or line.strip().startswith('RESULTS') or line.strip().startswith('INSIGHTS')):
+                skip_block = False
+
+            if not skip_block:
+                result.append(line)
+
+        return '\n'.join(result).strip()
 
     def get_depth(self) -> int:
         """Count the number of edges from this node up to the root."""
@@ -158,30 +196,7 @@ class MCTSNode:
 
     def node_id_number(self) -> int:
         return int(self.node_id)
-    
-    def get_hcc_context(self) -> str:
-        """Build context for this node: ancestor knowledge summaries
-        followed by the current node's raw experience details."""
-        context_segments = []
 
-        ancestors = []
-        curr = self.parent
-        while curr:
-            ancestors.insert(0,curr)
-            curr = curr.parent
-
-        for anc in ancestors:
-            if anc.knowledge:
-                context_segments.append((f"history step (Node {anc.node_id}): {anc.knowledge}"))
-
-        if self.experience:
-            raw_details = "\n".join([str(e) for e in self.experience])
-            context_segments.append((f"current node details (Node {self.node_id}): \n{raw_details}"))
-        elif self.knowledge:
-            context_segments.append((f"current node details (Node {self.node_id}): \n{self.knowledge}"))
-
-        return "\n\n".join(context_segments)
-    
     def to_dict(self) -> Dict[str, Any]:
         """Compact serialization for logging and debugging."""
         return {
@@ -240,45 +255,206 @@ class MCTSTree:
         return path
 
 
+    # Maximum context chars sent to the LLM (peers + ancestors + target combined)
+    CONTEXT_CHAR_LIMIT = 16000
+
     def get_context_for_node(self, node: MCTSNode) -> str:
         """Assemble context for the Supervisor/Theoretician by combining:
         1. Peer insights from sibling branches working on the same subtask
         2. Ancestor knowledge summaries along the path from root
-        3. Raw experience for the target node itself"""
+           - Current subtask ancestors: full knowledge
+           - Prior subtask ancestors: only the last node per subtask, condensed
+        3. Raw experience for the target node itself
+
+        Deduplicates verified knowledge blocks across ancestors, and
+        truncates the final result to CONTEXT_CHAR_LIMIT."""
         path = []
         curr = node
         while curr:
             path.insert(0, curr)
             curr = curr.parent
-        
+
         hcc_segments = []
 
+        # 1. Peer insights (same subtask, not in path)
         peers = [
             n for n in self.get_all_nodes()
             if n.subtask_id == node.subtask_id and n.node_id != node.node_id and n not in path
         ]
-        
+
         peer_insights = []
         for p_node in peers:
             if p_node.is_compressed and p_node.knowledge:
                 status = "SUCCESS" if p_node.reward > 0.8 else "FAILED/LIMITATION"
-                peer_insights.append(f"- Peer Node {p_node.node_id} ({status}): {p_node.knowledge}")
-        
+                # Only include original knowledge in peer summaries
+                original = p_node._extract_original_knowledge(p_node.knowledge)
+                if original.strip():
+                    # Truncate each peer insight to 800 chars to prevent context explosion
+                    truncated = original[:800] + "..." if len(original) > 800 else original
+                    peer_insights.append(f"- Peer Node {p_node.node_id} ({status}): {truncated}")
+
         if peer_insights:
             hcc_segments.append("### [Peer Insights (Parallel Branches)]\n" + "\n".join(peer_insights[:3]))
 
-        hcc_segments.append("### [Ancestry & Current Node Details]")
-        for path_node in path:
-            is_target = (path_node.node_id == node.node_id)
-            
-            if is_target:
-                details = "\n".join([str(e) for e in path_node.experience]) if path_node.experience else "No raw experience logs available."
-                hcc_segments.append(f">> Target Node {path_node.node_id} (Active):\n{details}")
-            else:
-                summary = path_node.knowledge or f"Subtask: {path_node.subtask_description}"
-                hcc_segments.append(f"-> Ancestor Node {path_node.node_id}: {summary}")
+        # 2. Ancestor knowledge with layered detail
+        # Track which verified blocks have been included globally
+        seen_verified = set()
 
-        return "\n\n".join(hcc_segments)
+        # Group ancestors by subtask
+        current_subtask_id = node.subtask_id
+        prior_subtasks = {}  # subtask_id -> last node in path for that subtask
+        current_subtask_ancestors = []
+
+        for path_node in path:
+            if path_node.node_id == node.node_id:
+                continue  # target node handled separately
+            if path_node.node_type == "virtual":
+                continue  # skip virtual root
+            if path_node.subtask_id == current_subtask_id:
+                current_subtask_ancestors.append(path_node)
+            else:
+                # Prior subtask: keep only the last (most refined) node
+                prior_subtasks[path_node.subtask_id] = path_node
+
+        hcc_segments.append("### [Ancestry & Current Node Details]")
+
+        # 2a. Prior subtasks: condensed knowledge (RESULTS + INSIGHTS only)
+        if prior_subtasks:
+            prior_lines = []
+            for sid in sorted(prior_subtasks.keys()):
+                pnode = prior_subtasks[sid]
+                condensed = self._condense_knowledge(pnode.knowledge)
+                if condensed.strip():
+                    prior_lines.append(f"-> Prior Subtask {sid} (Node {pnode.node_id}): {condensed}")
+            if prior_lines:
+                hcc_segments.append("\n".join(prior_lines))
+
+        # 2b. Current subtask ancestors: full knowledge with deduplication
+        for path_node in current_subtask_ancestors:
+            knowledge = path_node.knowledge or ""
+            if knowledge:
+                deduped = self._deduplicate_knowledge(knowledge, seen_verified)
+            else:
+                deduped = f"Subtask: {path_node.subtask_description}"
+            hcc_segments.append(f"-> Ancestor Node {path_node.node_id}: {deduped}")
+
+        # 2c. Target node: knowledge only (experience is for Critic/Promoter, not for context)
+        if node.knowledge:
+            deduped = self._deduplicate_knowledge(node.knowledge, seen_verified)
+            hcc_segments.append(f">> Target Node {node.node_id} (Active, compressed):\n{deduped}")
+        else:
+            hcc_segments.append(f">> Target Node {node.node_id} (Active): No prior context available.")
+
+        result = "\n\n".join(hcc_segments)
+
+        # Hard cap: if still too long, truncate from the middle, keeping
+        # the beginning (peers + first ancestors) and end (target node)
+        if len(result) > self.CONTEXT_CHAR_LIMIT:
+            keep_head = self.CONTEXT_CHAR_LIMIT * 2 // 3
+            keep_tail = self.CONTEXT_CHAR_LIMIT - keep_head - 50
+            result = (
+                result[:keep_head]
+                + "\n\n... [context truncated] ...\n\n"
+                + result[-keep_tail:]
+            )
+
+        return result
+
+    def _condense_knowledge(self, knowledge: str) -> str:
+        """Extract only RESULTS and INSIGHTS sections from knowledge,
+        dropping GUIDANCE and verified blocks. Used for prior subtasks."""
+        if not knowledge:
+            return ""
+
+        lines = knowledge.split('\n')
+        result = []
+        in_results = False
+        in_insights = False
+        skip_verified = False
+
+        for line in lines:
+            stripped = line.strip()
+
+            # Skip verified blocks entirely
+            if stripped.startswith('## Verified Knowledge') or stripped.startswith('[Verified by Node'):
+                skip_verified = True
+                continue
+            if skip_verified and (stripped.startswith('RESULTS') or stripped.startswith('INSIGHTS') or stripped.startswith('GUIDANCE')):
+                skip_verified = False
+
+            if skip_verified:
+                continue
+
+            # Track sections
+            if stripped.startswith('RESULTS'):
+                in_results = True
+                in_insights = False
+                result.append(line)
+            elif stripped.startswith('INSIGHTS'):
+                in_results = False
+                in_insights = True
+                result.append(line)
+            elif stripped.startswith('GUIDANCE'):
+                in_results = False
+                in_insights = False
+                # Don't include GUIDANCE for prior subtasks
+            elif in_results or in_insights:
+                result.append(line)
+
+        condensed = '\n'.join(result).strip()
+
+        # Fallback: if no section markers found, return first 600 chars
+        if not condensed and knowledge.strip():
+            return knowledge.strip()[:600] + ("..." if len(knowledge.strip()) > 600 else "")
+
+        return condensed
+
+    def _deduplicate_knowledge(self, knowledge: str, seen: set) -> str:
+        """Remove ## Verified Knowledge blocks that have already been
+        included in a previous ancestor. Updates `seen` in place."""
+        if not knowledge:
+            return ""
+
+        lines = knowledge.split('\n')
+        result = []
+        current_block_tag = None
+        skip_current_block = False
+
+        for line in lines:
+            # Detect start of a verified block
+            stripped = line.strip()
+            if stripped.startswith('## Verified Knowledge from Node'):
+                current_block_tag = stripped
+                if current_block_tag in seen:
+                    skip_current_block = True
+                else:
+                    seen.add(current_block_tag)
+                    skip_current_block = False
+                    result.append(line)
+                continue
+
+            # Detect old-style [Verified by Node X] blocks
+            if stripped.startswith('[Verified by Node'):
+                current_block_tag = stripped.split(']')[0] + ']'
+                if current_block_tag in seen:
+                    skip_current_block = True
+                else:
+                    seen.add(current_block_tag)
+                    skip_current_block = False
+                    result.append(line)
+                continue
+
+            # Detect end of verified block: another heading or top-level section
+            if current_block_tag and (stripped.startswith('## ') and not stripped.startswith('## Verified')):
+                current_block_tag = None
+                skip_current_block = False
+                result.append(line)
+                continue
+
+            if not skip_current_block:
+                result.append(line)
+
+        return '\n'.join(result).strip()
 
     def selection(self, exploration_constant: float = 1.414) -> MCTSNode:
         """Selection phase: walk from root with UCB1 until leaf."""

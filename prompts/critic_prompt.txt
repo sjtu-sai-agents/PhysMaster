@@ -21,6 +21,6 @@ Return a JSON object with the following keys:
 - decision: one of ["to_revise", "to_redraft", "complete"]
 - opinion: brief, bullet-like diagnostics of errors, assumptions, or key issues
 - reward: a float between 0 and 1 (higher is better)
-- summary: a short summary of current progress and what the next node should focus on (2–5 sentences)
+- analysis: a short analysis of current progress and what the next node should focus on (2–5 sentences)
 - core_results: a list of key numerical results, formulas, or intermediate values (may be empty)
 - code: short code snippets or commands relevant for continuation (string or array)

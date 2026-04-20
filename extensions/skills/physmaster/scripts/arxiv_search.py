@@ -11,7 +11,21 @@ import argparse
 import sys
 from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+def _find_project_root():
+    """Find PHY_Master project root by looking for marker files."""
+    p = Path(__file__).resolve().parent
+    for _ in range(10):
+        if (p / "core").is_dir() and (p / "LANDAU").is_dir():
+            return p
+        p = p.parent
+    raise RuntimeError(
+        "Cannot find PHY_Master project root. "
+        "Expected to find 'core/' and 'LANDAU/' directories."
+    )
+
+
+_PROJECT_ROOT = _find_project_root()
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 

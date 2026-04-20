@@ -1,54 +1,61 @@
 #!/bin/bash
 # Install PhysMaster skill for OpenClaw
 #
-# This script copies the physmaster skill package into OpenClaw's skills
-# directory. After installation, agents can load it via:
-#   use_skill(name="physmaster", action="get_info")
+# This script creates a symbolic link from OpenClaw's skills directory to the
+# physmaster skill in this repository. This ensures the Python scripts can
+# always resolve back to the PHY_Master project root for imports.
 #
 # Usage:
 #   bash extensions/skills/physmaster/install_openclaw.sh [skills_dir]
 #
 # Arguments:
-#   skills_dir  Path to OpenClaw's skills directory.
-#               Default: ./evomaster/skills (relative to current directory)
+#   skills_dir  Path to your OpenClaw skills directory.
+#               Default: ~/.openclaw/skills
 #
 # Examples:
 #   bash extensions/skills/physmaster/install_openclaw.sh
-#   bash extensions/skills/physmaster/install_openclaw.sh /path/to/evomaster/skills
-#   bash extensions/skills/physmaster/install_openclaw.sh ~/my-project/evomaster/skills
+#   bash extensions/skills/physmaster/install_openclaw.sh ~/.openclaw/skills
+#   bash extensions/skills/physmaster/install_openclaw.sh ~/my-openclaw-project/skills
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TARGET_DIR="${1:-./evomaster/skills}"
+
+# Default to ~/.openclaw/skills if no argument given
+TARGET_DIR="${1:-$HOME/.openclaw/skills}"
 
 if [ ! -d "$TARGET_DIR" ]; then
-    echo "[ERROR] Skills directory not found: $TARGET_DIR"
-    echo ""
-    echo "Please provide the path to your OpenClaw skills directory:"
-    echo "  bash $0 /path/to/evomaster/skills"
-    exit 1
+    echo "[INFO] Creating skills directory: $TARGET_DIR"
+    mkdir -p "$TARGET_DIR"
 fi
 
 DEST="$TARGET_DIR/physmaster"
 
-if [ -d "$DEST" ]; then
-    echo "[INFO] Existing installation found at $DEST, updating..."
+# Remove old installation (directory or broken symlink)
+if [ -L "$DEST" ]; then
+    echo "[INFO] Removing existing symlink at $DEST"
+    rm "$DEST"
+elif [ -d "$DEST" ]; then
+    echo "[INFO] Removing existing directory at $DEST"
     rm -rf "$DEST"
 fi
 
-cp -r "$SCRIPT_DIR" "$DEST"
-# Remove install scripts from the installed copy (not needed inside OpenClaw)
-rm -f "$DEST/install_cc.sh" "$DEST/install_openclaw.sh"
+# Create symbolic link
+ln -s "$SCRIPT_DIR" "$DEST"
 
-echo "[OK] PhysMaster skill installed for OpenClaw."
-echo "     Location: $DEST"
+# Verify
+if [ -L "$DEST" ] && [ -f "$DEST/SKILL.md" ]; then
+    echo "[OK] PhysMaster skill installed for OpenClaw."
+    echo "     Symlink: $DEST -> $SCRIPT_DIR"
+else
+    echo "[ERROR] Installation failed. Symlink verification failed."
+    exit 1
+fi
+
 echo ""
-echo "Usage in config:"
-echo "  agents:"
-echo "    my_agent:"
-echo "      skills: [\"physmaster\"]"
+echo "Usage in OpenClaw TUI or agent:"
+echo "  \"Use the physmaster skill to solve: <your physics problem>\""
 echo ""
-echo "Usage at runtime:"
-echo "  use_skill(name=\"physmaster\", action=\"get_info\")"
-echo "  use_skill(name=\"physmaster\", action=\"run_script\", path=\"run_physmaster.py --query '...'\")"
+echo "Direct script invocation:"
+echo "  python $DEST/scripts/run_physmaster.py --query 'your problem'"
+echo "  python $DEST/scripts/arxiv_search.py --query 'quantum error correction'"

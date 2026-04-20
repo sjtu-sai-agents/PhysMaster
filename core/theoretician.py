@@ -64,6 +64,7 @@ class Theoretician:
         path_memory: str | None = None,
         node_metadata: Dict[str, Any] | None = None,
         prior_knowledge: str | None = None,
+        parent_critic_feedback: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """Run the LLM with tools to solve a single subtask. Returns the
         raw LLM response string."""
@@ -80,6 +81,23 @@ class Theoretician:
         if prior_knowledge:
             prompt = f"## Prior Knowledge (Reference Materials)\n{prior_knowledge}\n\n{prompt}"
 
+        # For revise nodes: prepend parent's critic feedback so the LLM
+        # sees "what went wrong last time" before anything else
+        if parent_critic_feedback:
+            decision = parent_critic_feedback.get("decision", "")
+            reward = parent_critic_feedback.get("reward", "")
+            opinion = parent_critic_feedback.get("opinion", "")
+            analysis = parent_critic_feedback.get("analysis", "")
+
+            feedback_block = (
+                f"## Prior Attempt Feedback (Revision Target)\n"
+                f"Decision: {decision} | Reward: {reward}\n\n"
+                f"Issues to address:\n{opinion}\n\n"
+                f"Guidance for this revision:\n{analysis}\n\n"
+                f"---\n\n"
+            )
+            prompt = feedback_block + prompt
+
         tools = THEORETICIAN_CORE_TOOLS + (LIBRARY_TOOLS if self.library_enabled else [])
         tool_functions = {
             "Python_code_interpreter": run_python_code,
@@ -90,21 +108,27 @@ class Theoretician:
 
         # Wrap raw tool functions with logging so we can trace tool usage per node
         system_prompt = self.theoretician_system_prompt
+        tool_call_log: list = []  # collects {"tool", "args", "result"} for node_log
+
+        def _wrap(name, fn):
+            def wrapper(**kwargs):
+                self._log_tool_call(name, node_metadata)
+                result = fn(**kwargs)
+                tool_call_log.append({
+                    "tool": name,
+                    "arguments": kwargs,
+                    "result": result,
+                })
+                return result
+            return wrapper
+
         wrapped_tool_functions = {
-            "Python_code_interpreter": lambda **kwargs: (
-                self._log_tool_call("Python_code_interpreter", node_metadata),
-                run_python_code(cwd=output_dir or None, **kwargs),
-            )[1],
-            "load_skill_specs": lambda **kwargs: (
-                self._log_tool_call("load_skill_specs", node_metadata),
-                load_skill_specs(**kwargs),
-            )[1],
+            "Python_code_interpreter": _wrap("Python_code_interpreter",
+                                             lambda **kw: run_python_code(cwd=output_dir or None, **kw)),
+            "load_skill_specs": _wrap("load_skill_specs", load_skill_specs),
         }
         if self.library_enabled:
-            wrapped_tool_functions["library_search"] = lambda **kwargs: (
-                self._log_tool_call("library_search", node_metadata),
-                self._library_search(**kwargs),
-            )[1]
+            wrapped_tool_functions["library_search"] = _wrap("library_search", self._library_search)
 
         # Prepend a brief of all available skills so the LLM can decide to load any
         prompt = build_skill_brief_prompt() + "\n\n" + prompt
@@ -117,7 +141,7 @@ class Theoretician:
             config_path=self.config_path
         )
 
-        return response
+        return response, tool_call_log
 
 
 def run_theo_node(payload: Dict[str, Any],config_path:str = 'config.yaml') -> Dict[str, Any]:
@@ -129,7 +153,7 @@ def run_theo_node(payload: Dict[str, Any],config_path:str = 'config.yaml') -> Di
         node_id = int(payload["node_id"])
         structured_problem = payload["structured_problem"]
         description = payload["subtask"]["description"]
-        task_dir = payload["task_dir"]
+        task_dir = str(Path(payload["task_dir"]).resolve())
 
         # Re-read contract from disk to ensure subprocess has fresh data
         contract_file = Path(task_dir) / "contract.json"
@@ -139,7 +163,7 @@ def run_theo_node(payload: Dict[str, Any],config_path:str = 'config.yaml') -> Di
         theoretician = Theoretician(library_enabled=bool(payload.get("library_enabled", True)),config_path=config_path)
 
         # Each node gets its own output directory for generated files
-        node_output_dir = Path(task_dir) / f"node_{node_id}"
+        node_output_dir = str((Path(task_dir) / f"node_{node_id}").resolve())
         os.makedirs(node_output_dir, exist_ok=True)
 
         node_metadata = {
@@ -147,15 +171,16 @@ def run_theo_node(payload: Dict[str, Any],config_path:str = 'config.yaml') -> Di
             "node_id": node_id,
             "subtask_id": payload["subtask"]["id"],
             "node_type": payload["node_type"],
-            "task_dir": str(task_dir),
-            "output_dir": str(node_output_dir),
+            "task_dir": task_dir,
+            "output_dir": node_output_dir,
         }
 
-        result = theoretician.solve(
+        result, tool_call_log = theoretician.solve(
             subtask_description=description,
             path_memory=payload.get("hcc_context", payload.get("path_memory", "")),
             node_metadata=node_metadata,
             prior_knowledge=payload.get("prior_knowledge", ""),
+            parent_critic_feedback=payload.get("parent_critic_feedback"),
         )
         print(
             f"[Theoretician] "
@@ -165,6 +190,7 @@ def run_theo_node(payload: Dict[str, Any],config_path:str = 'config.yaml') -> Di
 
         return {
             "result": result,
+            "tool_calls": tool_call_log,
             "log_path": str(node_output_dir),
             "depth": depth,
             "node_id": node_id,

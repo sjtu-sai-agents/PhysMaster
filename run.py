@@ -147,7 +147,8 @@ def main(config_path: str = "config.yaml"):
         active_beam_width=mcts_cfg.get("active_beam_width", 0),
         landau_library_enabled=library_enabled,
         landau_prior_enabled=prior_enabled,
-        config_path=config_path
+        config_path=config_path,
+        debug_logging=bool(pipeline_cfg.get("debug_logging", False)),
     )
 
     mcts_result = supervisor.run()
