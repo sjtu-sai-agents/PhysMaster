@@ -1,0 +1,50 @@
+# Problem
+
+Consider the one-dimensional double-well potential
+\[
+V(x) = \frac{\lambda}{4}(x^2 - a^2)^2
+\]
+with \( \lambda > 0 \). The system has two degenerate classical minima at \( x = \pm a \).
+
+---
+
+## Task
+
+Using semiclassical (Euclidean path integral) methods, derive an approximation for the energy splitting \( \Delta E \) between the ground state and first excited state due to quantum tunneling.
+
+Your analysis should include the following components:
+
+1. **Instanton Solution**  
+   Find the classical Euclidean solution \( x(\tau) \) that interpolates between the two minima \( -a \to +a \).  
+   Express the solution in closed form.
+
+2. **Instanton Action**  
+   Compute the Euclidean action \( S_{\text{inst}} \) associated with this trajectory.
+
+3. **Dilute Instanton Gas Approximation**  
+   Explain how multi-instanton configurations contribute and why they can be treated as a dilute gas.  
+   Derive how repeated tunneling events modify the partition function.
+
+4. **Energy Splitting**  
+   Show that the ground-state energy splitting behaves as
+   \[
+   \Delta E \sim A \, e^{-S_{\text{inst}}/\hbar}
+   \]
+   and explain the origin of the prefactor \( A \) at a qualitative level (no need for full determinant calculation, but outline the structure).
+
+---
+
+## Goal
+
+Provide a logically consistent derivation connecting:
+
+- classical Euclidean solutions,
+- semiclassical saddle-point approximation,
+- multi-instanton contributions,
+- and the emergence of energy splitting.
+
+---
+
+## Difficulty
+
+Advanced (borderline research-level; requires familiarity with path integrals and semiclassical methods)

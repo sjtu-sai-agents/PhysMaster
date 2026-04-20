@@ -10,7 +10,6 @@ LANDAU/prior/knowledge/
 __pycache__/
 outputs/
 inputs/
-instructions/
 *.pyc
 *env
 
