@@ -13,7 +13,7 @@
 </p>
 
 <p>
-<a href="README_CN.md">中文文档</a>&nbsp;&nbsp;|&nbsp;&nbsp;<a href="extensions/README.md">Extensions</a>&nbsp;&nbsp;|&nbsp;&nbsp;<a href="feishu/README.md">Feishu Bot</a>
+<a href="README_CN.md">中文文档</a>
 </p>
 
 <br>
