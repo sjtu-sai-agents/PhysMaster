@@ -406,6 +406,17 @@ use_skill(name="physmaster", action="run_script", path="run_physmaster.py --quer
 
 ---
 
+## 💬 交流群
+
+欢迎加入微信群，交流物理求解、分享结果、反馈问题：
+
+<div align="center">
+<img src="assets/wechat_qr.jpg" alt="微信群二维码" width="200"/>
+<p><i>扫码加入微信交流群</i></p>
+</div>
+
+---
+
 ## 许可
 
 [MIT](LICENSE)

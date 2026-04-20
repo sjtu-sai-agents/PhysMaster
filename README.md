@@ -57,7 +57,14 @@ flowchart LR
     style MCTS fill:#fff8f0,stroke:#c5651a,stroke-width:3px,rx:8
     style STAGE3 fill:#f0fff4,stroke:#2a9d3e,stroke-width:2px,rx:8
 
-    linkStyle default stroke:#555,stroke-width:2px
+    style Q fill:#e8eaff,stroke:#5b6abf,stroke-width:2px,color:#1a1a2e
+    style CL fill:#e8eaff,stroke:#5b6abf,stroke-width:2px,color:#1a1a2e
+    style SUP fill:#fff3e0,stroke:#d4842a,stroke-width:2px,color:#1a1a2e
+    style THEO fill:#fff3e0,stroke:#d4842a,stroke-width:2px,color:#1a1a2e
+    style CRIT fill:#fff3e0,stroke:#d4842a,stroke-width:2px,color:#1a1a2e
+    style SUM fill:#e8ffe8,stroke:#3a8f4a,stroke-width:2px,color:#1a1a2e
+
+    linkStyle default stroke:#90a4ae,stroke-width:2.5px
 ```
 
 <table>
@@ -413,6 +420,17 @@ Then `use_skill(name="physmaster", ...)` in agents.
 </table>
 
 See **[extensions/README.md](extensions/README.md)** for details.
+
+---
+
+## 💬 Community
+
+Join our WeChat group to discuss physics problem solving, share results, and get help:
+
+<div align="center">
+<img src="assets/wechat_qr.jpg" alt="WeChat Group QR Code" width="200"/>
+<p><i>Scan to join the WeChat group</i></p>
+</div>
 
 ---
 
