@@ -26,7 +26,6 @@ PhysMaster decomposes a physics problem into subtasks, explores multiple solutio
 ## 🏗 Architecture
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#2b2d42', 'primaryTextColor': '#edf2f4', 'primaryBorderColor': '#8d99ae', 'lineColor': '#8d99ae', 'secondaryColor': '#3a3d56', 'tertiaryColor': '#3a3d56', 'background': '#2b2d42'}}}%%
 flowchart LR
     subgraph INPUT [" "]
         direction TB
@@ -54,18 +53,18 @@ flowchart LR
     Q --> CL --> MCTS --> SUM
 
     style INPUT fill:none,stroke:none
-    style STAGE1 fill:#3a3d56,stroke:#7b8cde,stroke-width:2px,rx:8
-    style MCTS fill:#3d3528,stroke:#e0a458,stroke-width:3px,rx:8
-    style STAGE3 fill:#2d3d2f,stroke:#6abf7b,stroke-width:2px,rx:8
+    style STAGE1 fill:#e3f2fd,stroke:#1976d2,stroke-width:2.5px,rx:8
+    style MCTS fill:#fff3e0,stroke:#f57c00,stroke-width:3px,rx:8
+    style STAGE3 fill:#e8f5e9,stroke:#388e3c,stroke-width:2.5px,rx:8
 
-    style Q fill:#4a4e6e,stroke:#a8b4f0,stroke-width:2px,color:#edf2f4
-    style CL fill:#4a4e6e,stroke:#a8b4f0,stroke-width:2px,color:#edf2f4
-    style SUP fill:#4e4535,stroke:#e8b76a,stroke-width:2px,color:#edf2f4
-    style THEO fill:#4e4535,stroke:#e8b76a,stroke-width:2px,color:#edf2f4
-    style CRIT fill:#4e4535,stroke:#e8b76a,stroke-width:2px,color:#edf2f4
-    style SUM fill:#354e38,stroke:#7ad48a,stroke-width:2px,color:#edf2f4
+    style Q fill:#bbdefb,stroke:#1565c0,stroke-width:2px
+    style CL fill:#bbdefb,stroke:#1565c0,stroke-width:2px
+    style SUP fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+    style THEO fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+    style CRIT fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+    style SUM fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
 
-    linkStyle default stroke:#8d99ae,stroke-width:2.5px
+    linkStyle default stroke:#607d8b,stroke-width:3px
 ```
 
 <table>
