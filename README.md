@@ -25,47 +25,9 @@ PhysMaster decomposes a physics problem into subtasks, explores multiple solutio
 
 ## 🏗 Architecture
 
-```mermaid
-flowchart LR
-    subgraph INPUT [" "]
-        direction TB
-        Q["📝 <b>Query</b><br/><i>physics problem</i>"]
-    end
-
-    subgraph STAGE1 ["Stage 1"]
-        direction TB
-        CL["🔍 <b>Clarifier</b><br/><i>decompose into<br/>subtasks</i>"]
-    end
-
-    subgraph MCTS ["Stage 2 — MCTS Search Loop"]
-        direction TB
-        SUP["🎯 <b>Supervisor</b><br/><i>select node, dispatch<br/>draft or revise</i>"]
-        THEO["⚡ <b>Theoretician × N</b><br/><i>solve in parallel<br/>Python · Skills · arXiv</i>"]
-        CRIT["🧪 <b>Critic</b><br/><i>score 0–1, decide<br/>complete / revise / redraft</i>"]
-        SUP --> THEO --> CRIT --> SUP
-    end
-
-    subgraph STAGE3 ["Stage 3"]
-        direction TB
-        SUM["📄 <b>Summarizer</b><br/><i>best trajectory<br/>→ markdown report</i>"]
-    end
-
-    Q --> CL --> MCTS --> SUM
-
-    style INPUT fill:none,stroke:none
-    style STAGE1 fill:#90caf9,stroke:#1565c0,stroke-width:2.5px,rx:8
-    style MCTS fill:#ffcc80,stroke:#e65100,stroke-width:3px,rx:8
-    style STAGE3 fill:#a5d6a7,stroke:#2e7d32,stroke-width:2.5px,rx:8
-
-    style Q fill:#64b5f6,stroke:#0d47a1,stroke-width:2px,color:#0d47a1
-    style CL fill:#64b5f6,stroke:#0d47a1,stroke-width:2px,color:#0d47a1
-    style SUP fill:#ffb74d,stroke:#bf360c,stroke-width:2px,color:#bf360c
-    style THEO fill:#ffb74d,stroke:#bf360c,stroke-width:2px,color:#bf360c
-    style CRIT fill:#ffb74d,stroke:#bf360c,stroke-width:2px,color:#bf360c
-    style SUM fill:#81c784,stroke:#1b5e20,stroke-width:2px,color:#1b5e20
-
-    linkStyle default stroke:#b0bec5,stroke-width:3px
-```
+<div align="center">
+<img src="assets/workflow.jpg" alt="PhysMaster Architecture" width="800"/>
+</div>
 
 <table>
 <tr>
