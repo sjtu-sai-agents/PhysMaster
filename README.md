@@ -53,9 +53,11 @@ flowchart LR
     Q --> CL --> MCTS --> SUM
 
     style INPUT fill:none,stroke:none
-    style STAGE1 fill:#f0f4ff,stroke:#4a6cf7,stroke-width:1px,rx:8
-    style MCTS fill:#fff8f0,stroke:#f7944a,stroke-width:2px,rx:8
-    style STAGE3 fill:#f0fff4,stroke:#4af76a,stroke-width:1px,rx:8
+    style STAGE1 fill:#f0f4ff,stroke:#2d4ea3,stroke-width:2px,rx:8
+    style MCTS fill:#fff8f0,stroke:#c5651a,stroke-width:3px,rx:8
+    style STAGE3 fill:#f0fff4,stroke:#2a9d3e,stroke-width:2px,rx:8
+
+    linkStyle default stroke:#555,stroke-width:2px
 ```
 
 <table>
