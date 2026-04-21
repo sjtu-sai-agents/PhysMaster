@@ -26,13 +26,10 @@ PhysMaster decomposes a physics problem into subtasks, explores multiple solutio
 ## 🏗 Architecture
 
 <div align="center">
-<table><tr>
-<td width="50%"><img src="assets/workflow.jpg" alt="PhysMaster Architecture"/></td>
-<td width="50%"><img src="assets/workflow2.jpg" alt="PhysMaster Pipeline"/></td>
-</tr></table>
+<img src="assets/workflow.png" alt="PhysMaster Architecture" width="800"/>
 </div>
 
-**Agent** | **Role**
+**Component** | **Role**
 :--|:--
 🔍 **Clarifier** | Parse problem into structured subtasks
 🎯 **Supervisor** | Read tree context, pick next subtask, decide draft vs. revise
@@ -288,7 +285,7 @@ YAML files in `LANDAU/workflow/` that define structured solving strategies. The 
 
 ## 🔌 Integrations
 
-### Feishu Bot
+### 🤖 Feishu Bot
 
 PhysMaster can run as a **Feishu (Lark) chatbot**. Send a physics problem in chat &rarr; bot replies "solving..." &rarr; pipeline runs in a background thread &rarr; summary is pushed back when done.
 
@@ -296,7 +293,7 @@ See **[feishu/README.md](feishu/README.md)** for setup.
 
 <br>
 
-### Use as a Skill (Claude Code / OpenClaw)
+### 🧩 Use as a Skill (Claude Code / OpenClaw)
 
 PhysMaster can be installed as a **skill plugin** for AI agent platforms:
 
