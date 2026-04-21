@@ -12,6 +12,7 @@ outputs/
 inputs/
 *.pyc
 *env
+*.DS_Store
 
 # Feishu bot config (contains secrets)
 feishu/config.yaml

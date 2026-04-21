@@ -7,7 +7,7 @@
 
 <p>
 <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10+"></a>&nbsp;
-<a href="#-quick-start"><img src="https://img.shields.io/badge/API-OpenAI%20Compatible-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI Compatible"></a>&nbsp;
+<a href="#-getting-started"><img src="https://img.shields.io/badge/API-OpenAI%20Compatible-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI Compatible"></a>&nbsp;
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge" alt="MIT License"></a>&nbsp;
 <a href="https://arxiv.org"><img src="https://img.shields.io/badge/arXiv-Search-b31b1b?style=for-the-badge&logo=arxiv&logoColor=white" alt="arXiv"></a>
 </p>
@@ -27,14 +27,10 @@ PhysMaster decomposes a physics problem into subtasks, explores multiple solutio
 
 <div align="center">
 <table><tr>
-<td width="60%"><img src="assets/workflow.jpg" alt="PhysMaster Pipeline"/></td>
-<td width="40%"><img src="assets/LANDAU.jpg" alt="LANDAU Architecture"/></td>Architecture
+<td width="50%"><img src="assets/workflow.jpg" alt="PhysMaster Architecture"/></td>
+<td width="50%"><img src="assets/workflow2.jpg" alt="PhysMaster Pipeline"/></td>
 </tr></table>
 </div>
-
-<table>
-<tr>
-<td>
 
 **Agent** | **Role**
 :--|:--
@@ -43,24 +39,17 @@ PhysMaster decomposes a physics problem into subtasks, explores multiple solutio
 ⚡ **Theoretician** | Solve subtask with Python, skills, arXiv, prior knowledge
 🧪 **Critic** | Score solution (0&ndash;1): `complete` · `to_revise` · `to_redraft`
 📄 **Summarizer** | Extract best trajectory, write markdown report
-
-</td>
-</tr>
-</table>
+📦 **LANDAU** | External knowledge layer &mdash; provides prior RAG, arXiv search, domain skills, and workflow templates
 
 > **The loop stops** when all subtasks are completed along some path, or the round budget runs out.
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Getting Started
 
 > **Prerequisites:** Python 3.10+, an OpenAI-compatible LLM API key
 
-<table>
-<tr>
-<td>
-
-**1. Install**
+**1. Install & Configure**
 
 ```bash
 git clone https://github.com/AdrianMiao27/PHY_Master.git
@@ -68,37 +57,31 @@ cd PHY_Master
 pip install -r requirements.txt
 ```
 
-</td>
-<td>
-
-**2. Configure**
-
 ```yaml
 # config.yaml
 llm:
   base_url: "https://api.openai.com/v1"
   api_key: "sk-..."
   model: "gpt-4o"
+
+pipeline:
+  query_file: "instructions/my_problem.txt"
 ```
 
-</td>
-</tr>
-</table>
-
-**3. Write your problem** in a text file (LaTeX is fine):
+**2. Write your problem** in a text file (LaTeX is fine):
 
 ```
 instructions/my_problem.txt
 ```
 
-**4. Run:**
+**3. Run:**
 
 ```bash
 python run.py                    # default config.yaml
 python run.py -c custom.yaml     # custom config
 ```
 
-**5. Check results** in `outputs/<task_name>/`:
+**4. Check results** in `outputs/<task_name>/`:
 
 ```
 outputs/<task_name>/
@@ -116,12 +99,6 @@ outputs/<task_name>/
 ```
 
 > 💡 **Minimal mode** &mdash; run without external knowledge: set `skills.enabled: false` and all `landau.*_enabled: false`.
-
----
-
-## ⚙ Configuration
-
-All behavior lives in `config.yaml`. Only `llm` and `pipeline.query_file` are required.
 
 <details>
 <summary><b>📄 Full config with comments</b> (click to expand)</summary>
@@ -189,7 +166,9 @@ visualization:
 
 ---
 
-## 🌳 MCTS Search
+## 🌳 Core Method
+
+### MCTS Search
 
 PhysMaster does **not** solve linearly. It maintains a tree of solution attempts and navigates it like a game:
 
@@ -203,9 +182,9 @@ PhysMaster does **not** solve linearly. It maintains a tree of solution attempts
 
 The search terminates when a complete path is found or `max_rounds` is hit. The best root-to-leaf path is extracted for the summary.
 
----
+<br>
 
-## 🧠 Memory System
+### Memory System
 
 The search tree carries knowledge forward at **three scopes**:
 
@@ -239,7 +218,11 @@ After a task completes, the best trajectory is distilled and written back to the
 
 ---
 
-## 📚 Prior Knowledge (RAG)
+## 📦 LANDAU Knowledge System
+
+The `LANDAU/` directory provides the external knowledge layer that powers the Theoretician's domain expertise.
+
+### 📚 Prior Knowledge (RAG)
 
 `LANDAU/prior/` provides a full retrieval-augmented generation pipeline:
 
@@ -263,17 +246,15 @@ python LANDAU/prior/prior_store.py --reset                     # full rebuild
 
 </details>
 
-```yaml
-landau:
-  prior_enabled: true
-  wisdom_save_enabled: true   # optional: persist cross-task wisdom
-```
+<br>
 
----
+### 🔎 Library (arXiv Search)
 
-## 🔧 Skills & Workflow
+`LANDAU/library/` enables the Theoretician to search and retrieve arXiv papers at solve time, providing cutting-edge references beyond the textbook knowledge base.
 
-### Skills
+<br>
+
+### 🔧 Skills
 
 Domain knowledge packages in `LANDAU/skills/`. The Theoretician sees a brief of all installed skills and can load any on demand.
 
@@ -297,9 +278,57 @@ Domain knowledge packages in `LANDAU/skills/`. The Theoretician sees a brief of 
 
 </details>
 
-### Workflow Templates
+<br>
+
+### 📋 Workflow Templates
 
 YAML files in `LANDAU/workflow/` that define structured solving strategies. The Clarifier matches a template by keyword overlap with its Goal field.
+
+---
+
+## 🔌 Integrations
+
+### Feishu Bot
+
+PhysMaster can run as a **Feishu (Lark) chatbot**. Send a physics problem in chat &rarr; bot replies "solving..." &rarr; pipeline runs in a background thread &rarr; summary is pushed back when done.
+
+See **[feishu/README.md](feishu/README.md)** for setup.
+
+<br>
+
+### Use as a Skill (Claude Code / OpenClaw)
+
+PhysMaster can be installed as a **skill plugin** for AI agent platforms:
+
+<table>
+<tr>
+<td width="50%">
+
+**Claude Code**
+
+```bash
+bash extensions/skills/physmaster/install_cc.sh
+```
+
+Then use `/physmaster` in any session.
+
+</td>
+<td width="50%">
+
+**OpenClaw**
+
+```bash
+bash extensions/skills/physmaster/install_openclaw.sh \
+  /path/to/skills
+```
+
+Then `use_skill(name="physmaster", ...)` in agents.
+
+</td>
+</tr>
+</table>
+
+See **[extensions/README.md](extensions/README.md)** for details.
 
 ---
 
@@ -341,50 +370,6 @@ PHY_Master/
 ├── feishu/                      Feishu bot integration
 └── outputs/                     Generated at runtime
 ```
-
----
-
-## 🔌 Integrations
-
-### Feishu Bot
-
-PhysMaster can run as a **Feishu (Lark) chatbot**. Send a physics problem in chat &rarr; bot replies "solving..." &rarr; pipeline runs in a background thread &rarr; summary is pushed back when done.
-
-See **[feishu/README.md](feishu/README.md)** for setup.
-
-### Use as a Skill (Claude Code / OpenClaw)
-
-PhysMaster can be installed as a **skill plugin** for AI agent platforms:
-
-<table>
-<tr>
-<td width="50%">
-
-**Claude Code**
-
-```bash
-bash extensions/skills/physmaster/install_cc.sh
-```
-
-Then use `/physmaster` in any session.
-
-</td>
-<td width="50%">
-
-**OpenClaw**
-
-```bash
-bash extensions/skills/physmaster/install_openclaw.sh \
-  /path/to/skills
-```
-
-Then `use_skill(name="physmaster", ...)` in agents.
-
-</td>
-</tr>
-</table>
-
-See **[extensions/README.md](extensions/README.md)** for details.
 
 ---
 
