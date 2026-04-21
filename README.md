@@ -26,7 +26,10 @@ PhysMaster decomposes a physics problem into subtasks, explores multiple solutio
 ## 🏗 Architecture
 
 <div align="center">
-<img src="assets/workflow.jpg" alt="PhysMaster Architecture" width="800"/>
+<table><tr>
+<td width="60%"><img src="assets/workflow.jpg" alt="PhysMaster Pipeline"/></td>
+<td width="40%"><img src="assets/LANDAU.jpg" alt="LANDAU Architecture"/></td>Architecture
+</tr></table>
 </div>
 
 <table>
