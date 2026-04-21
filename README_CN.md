@@ -364,6 +364,24 @@ PHY_Master/
 
 ---
 
+## 📄 引用
+
+如果 PhysMaster 对你的研究有帮助，请引用：
+
+```bibtex
+@misc{miao2025physmaster,
+      title={PhysMaster: Building an Autonomous AI Physicist for Theoretical and Computational Physics Research},
+      author={Tingjia Miao and Jiawen Dai and Jingkun Liu and Jinxin Tan and Muhua Zhang and Wenkai Jin and Yuwen Du and Tian Jin and Xianghe Pang and Zexi Liu and Tu Guo and Zhengliang Zhang and Yunjie Huang and Shuo Chen and Rui Ye and Yuzhi Zhang and Linfeng Zhang and Kun Chen and Wei Wang and Weinan E and Siheng Chen},
+      year={2025},
+      eprint={2512.19799},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2512.19799},
+}
+```
+
+---
+
 ## 许可
 
 [MIT](LICENSE)

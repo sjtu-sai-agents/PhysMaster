@@ -381,6 +381,24 @@ Join our WeChat group to discuss physics problem solving, share results, and get
 
 ---
 
+## 📄 Citation
+
+If you use PhysMaster in your research, please cite:
+
+```bibtex
+@misc{miao2025physmaster,
+      title={PhysMaster: Building an Autonomous AI Physicist for Theoretical and Computational Physics Research},
+      author={Tingjia Miao and Jiawen Dai and Jingkun Liu and Jinxin Tan and Muhua Zhang and Wenkai Jin and Yuwen Du and Tian Jin and Xianghe Pang and Zexi Liu and Tu Guo and Zhengliang Zhang and Yunjie Huang and Shuo Chen and Rui Ye and Yuzhi Zhang and Linfeng Zhang and Kun Chen and Wei Wang and Weinan E and Siheng Chen},
+      year={2025},
+      eprint={2512.19799},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2512.19799},
+}
+```
+
+---
+
 ## License
 
 [MIT](LICENSE)

@@ -5,6 +5,7 @@ LANDAU/prior/out/
 huggingface/
 LANDAU/prior/index/
 LANDAU/prior/knowledge/
+prl_test/
 
 # Common Python ignores
 __pycache__/
