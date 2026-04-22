@@ -9,17 +9,25 @@
 <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10+"></a>&nbsp;
 <a href="#-getting-started"><img src="https://img.shields.io/badge/API-OpenAI%20Compatible-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI Compatible"></a>&nbsp;
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge" alt="MIT License"></a>&nbsp;
-<a href="https://arxiv.org"><img src="https://img.shields.io/badge/arXiv-Search-b31b1b?style=for-the-badge&logo=arxiv&logoColor=white" alt="arXiv"></a>
 </p>
 
 <p>
-<a href="README_CN.md">中文文档</a>
+<a href="README_CN.md">中文文档</a> ·
+📄 Paper:&nbsp;<a href="https://arxiv.org/abs/2512.19799"><img src="https://img.shields.io/badge/arXiv-2512.19799-b31b1b?logo=arxiv&logoColor=white" alt="arXiv" height="18"/></a>
 </p>
 
 <br>
 </div>
 
 PhysMaster decomposes a physics problem into subtasks, explores multiple solution strategies **in parallel** through an MCTS search tree, evaluates and refines them with a Critic, and distills reusable knowledge &mdash; from a single node all the way up to a cross-task wisdom store.
+
+## 📋 Core Features
+
+- **MCTS-Driven Search**: Explores multiple solution paths in parallel, balancing exploitation and exploration via UCB1
+- **Multi-Agent Pipeline**: 5 specialized agents (Clarifier → Supervisor → Theoretician → Critic → Summarizer) collaborate in a structured loop
+- **Hierarchical Memory**: Per-node experience → compressed knowledge → cross-task wisdom, with cognitive reinforcement on high-reward paths
+- **LANDAU Knowledge Layer**: RAG over 74 physics textbooks, real-time arXiv search, 12 domain skill packs, and workflow templates
+- **Minimal Config**: Only `llm` + `pipeline.query_file` required; everything else has sensible defaults
 
 ---
 
@@ -46,59 +54,26 @@ PhysMaster decomposes a physics problem into subtasks, explores multiple solutio
 
 > **Prerequisites:** Python 3.10+, an OpenAI-compatible LLM API key
 
-**1. Install & Configure**
-
 ```bash
+# 1. Install
 git clone https://github.com/AdrianMiao27/PHY_Master.git
 cd PHY_Master
 pip install -r requirements.txt
-```
 
-```yaml
-# config.yaml
-llm:
-  base_url: "https://api.openai.com/v1"
-  api_key: "sk-..."
-  model: "gpt-4o"
+# 2. Configure — edit config.yaml
+#    llm.base_url / api_key / model  +  pipeline.query_file
 
-pipeline:
-  query_file: "instructions/my_problem.txt"
-```
-
-**2. Write your problem** in a text file (LaTeX is fine):
-
-```
-instructions/my_problem.txt
-```
-
-**3. Run:**
-
-```bash
+# 3. Run
 python run.py                    # default config.yaml
 python run.py -c custom.yaml     # custom config
 ```
 
-**4. Check results** in `outputs/<task_name>/`:
+Output lands in `outputs/<task_name>/` — includes `summary.md`, `visualization.html` (interactive MCTS tree), and per-node working directories.
 
-```
-outputs/<task_name>/
- ├─ contract.json            Structured problem decomposition
- ├─ summary.md               Final solution report
- ├─ visualization.html       Interactive MCTS tree (open in browser)
- ├─ log/                     Detailed logs (if debug_logging enabled)
- │   ├─ round_0.json           Round-level dispatch decisions
- │   ├─ node_1/
- │   │   └─ node_log.json      Input/output/evaluation for node 1
- │   └─ summary.json           Tree statistics
- ├─ node_1/                  Theoretician working directory for node 1
- ├─ node_2/                  ...
- └─ ...
-```
-
-> 💡 **Minimal mode** &mdash; run without external knowledge: set `skills.enabled: false` and all `landau.*_enabled: false`.
+> 💡 **Minimal mode** — run without external knowledge: set `skills.enabled: false` and all `landau.*_enabled: false`.
 
 <details>
-<summary><b>📄 Full config with comments</b> (click to expand)</summary>
+<summary><b>⚙ Full config reference</b></summary>
 
 ```yaml
 # ── LLM ──────────────────────────────────────────────
@@ -147,8 +122,6 @@ visualization:
   enabled: true
 ```
 
-</details>
-
 **Key parameters:**
 
 | Key | Description | Default |
@@ -160,6 +133,8 @@ visualization:
 | `mcts.revise_expansion` | Child nodes per revise round | `2` |
 | `mcts.exploration_constant` | UCB1 exploration term | `1.414` |
 | `mcts.active_beam_width` | Beam pruning width (0 = off) | `0` |
+
+</details>
 
 ---
 
@@ -179,39 +154,17 @@ PhysMaster does **not** solve linearly. It maintains a tree of solution attempts
 
 The search terminates when a complete path is found or `max_rounds` is hit. The best root-to-leaf path is extracted for the summary.
 
-<br>
-
 ### Memory System
 
 The search tree carries knowledge forward at **three scopes**:
 
-<table>
-<tr>
-<td width="33%" align="center">
+| Scope | Description |
+|:------|:------------|
+| **🔬 Per-Node Experience** | Full Theoretician output — reasoning, tool calls, code. Available to the Critic for evaluation, then compressed. |
+| **📦 Compressed Knowledge** | Distilled summary attached to each node. Ancestors and siblings share insights through tree context. |
+| **🌐 Cross-Task Wisdom** | Best trajectory distilled post-task and written back to the FAISS index for future retrieval. |
 
-**🔬 Per-Node Experience**
-
-Full Theoretician output: reasoning, tool calls, code. Available to the Critic for evaluation, then compressed into knowledge.
-
-</td>
-<td width="33%" align="center">
-
-**📦 Compressed Knowledge**
-
-Distilled summary attached to each node after evaluation. Ancestors and siblings share insights through the tree context.
-
-</td>
-<td width="33%" align="center">
-
-**🌐 Cross-Task Wisdom**
-
-After a task completes, the best trajectory is distilled and written back to the FAISS index for future tasks to retrieve.
-
-</td>
-</tr>
-</table>
-
-> High-reward nodes (&gt;0.8) trigger **cognitive reinforcement**: their verified knowledge is propagated to ancestor nodes during backpropagation, strengthening context quality for future expansions.
+> High-reward nodes (&gt;0.8) trigger **cognitive reinforcement**: verified knowledge is propagated to ancestors during backpropagation.
 
 ---
 
@@ -219,23 +172,19 @@ After a task completes, the best trajectory is distilled and written back to the
 
 The `LANDAU/` directory provides the external knowledge layer that powers the Theoretician's domain expertise.
 
-### 📚 Prior Knowledge (RAG)
+| Module | Path | What it does |
+|:-------|:-----|:-------------|
+| **📚 Prior (RAG)** | `LANDAU/prior/` | PDF/MD/Text → parent-child chunks → `bge-small-en-v1.5` → FAISS index. Dense + BM25 hybrid retrieval with RRF. |
+| **🔎 Library** | `LANDAU/library/` | Real-time arXiv paper search & retrieval at solve time. |
+| **🔧 Skills** | `LANDAU/skills/` | 12 domain knowledge packs — Theoretician loads on demand. |
+| **📋 Workflows** | `LANDAU/workflow/` | YAML solving templates — Clarifier auto-matches by keyword overlap. |
 
-`LANDAU/prior/` provides a full retrieval-augmented generation pipeline:
-
-| Stage | File | What it does |
-|:------|:-----|:-------------|
-| **Ingest** | `prior_store.py` | PDF / Markdown / Text &rarr; parent-child chunks &rarr; `bge-small-en-v1.5` embeddings &rarr; FAISS index |
-| **Retrieve** | `prior_retrieve.py` | Dense + BM25, fused with Reciprocal Rank Fusion, then weighted reranking |
-| **Wisdom** | `wisdom_store.py` | Post-task LLM distillation &rarr; new chunk appended to the same index |
-
-**Pre-built knowledge base**: [PhysLib on HuggingFace](https://huggingface.co/datasets/Kev1n-J1N/PhysLib) — 78k chunks from 74 physics textbooks (Landau & Lifshitz, Weinberg QFT, String Theory, Condensed Matter, GR/Cosmology, etc.)
+**Pre-built knowledge base**: [PhysLib on HuggingFace](https://huggingface.co/datasets/Kev1n-J1N/PhysLib) — 78k chunks from 74 physics textbooks.
 
 <details>
 <summary><b>Ingestion commands</b></summary>
 
 ```bash
-# place source files in LANDAU/prior/source/, then:
 python LANDAU/prior/prior_store.py                             # ingest all
 python LANDAU/prior/prior_store.py --target path/to/file.pdf   # single file
 python LANDAU/prior/prior_store.py --reset                     # full rebuild
@@ -243,20 +192,8 @@ python LANDAU/prior/prior_store.py --reset                     # full rebuild
 
 </details>
 
-<br>
-
-### 🔎 Library (arXiv Search)
-
-`LANDAU/library/` enables the Theoretician to search and retrieve arXiv papers at solve time, providing cutting-edge references beyond the textbook knowledge base.
-
-<br>
-
-### 🔧 Skills
-
-Domain knowledge packages in `LANDAU/skills/`. The Theoretician sees a brief of all installed skills and can load any on demand.
-
 <details>
-<summary><b>12 built-in skills</b> (click to expand)</summary>
+<summary><b>12 built-in skills</b></summary>
 
 | Skill | Coverage |
 |:------|:---------|
@@ -275,55 +212,15 @@ Domain knowledge packages in `LANDAU/skills/`. The Theoretician sees a brief of 
 
 </details>
 
-<br>
-
-### 📋 Workflow Templates
-
-YAML files in `LANDAU/workflow/` that define structured solving strategies. The Clarifier matches a template by keyword overlap with its Goal field.
-
 ---
 
 ## 🔌 Integrations
 
-### 🤖 Feishu Bot
-
-PhysMaster can run as a **Feishu (Lark) chatbot**. Send a physics problem in chat &rarr; bot replies "solving..." &rarr; pipeline runs in a background thread &rarr; summary is pushed back when done.
-
-See **[feishu/README.md](feishu/README.md)** for setup.
-
-<br>
-
-### 🧩 Use as a Skill (Claude Code / OpenClaw)
-
-PhysMaster can be installed as a **skill plugin** for AI agent platforms:
-
-<table>
-<tr>
-<td width="50%">
-
-**Claude Code**
-
-```bash
-bash extensions/skills/physmaster/install_cc.sh
-```
-
-Then use `/physmaster` in any session.
-
-</td>
-<td width="50%">
-
-**OpenClaw**
-
-```bash
-bash extensions/skills/physmaster/install_openclaw.sh \
-  /path/to/skills
-```
-
-Then `use_skill(name="physmaster", ...)` in agents.
-
-</td>
-</tr>
-</table>
+| Platform | How |
+|:---------|:----|
+| **🤖 Feishu Bot** | Send a physics problem in chat → pipeline runs in background → summary pushed back. See [feishu/README.md](feishu/README.md). |
+| **🧩 Claude Code** | `bash extensions/skills/physmaster/install_cc.sh` → use `/physmaster` in any session. |
+| **🧩 OpenClaw** | `bash extensions/skills/physmaster/install_openclaw.sh /path/to/skills` → `use_skill(name="physmaster", ...)`. |
 
 See **[extensions/README.md](extensions/README.md)** for details.
 
@@ -333,11 +230,9 @@ See **[extensions/README.md](extensions/README.md)** for details.
 
 ```
 PHY_Master/
-│
 ├── run.py                       Entry point
 ├── config.yaml                  Configuration
 ├── requirements.txt
-│
 ├── core/                        Core pipeline
 │   ├── clarifier.py               Query → structured contract
 │   ├── supervisor.py              MCTS orchestrator
@@ -345,22 +240,12 @@ PHY_Master/
 │   ├── theoretician.py            Solver agent (subprocess)
 │   ├── summarizer.py              Trajectory → markdown report
 │   └── visualization.py           Tree → interactive HTML
-│
 ├── LANDAU/                      Knowledge modules
 │   ├── skills/                    12 built-in physics skills
 │   ├── workflow/                  Problem-solving YAML templates
 │   ├── library/                   arXiv paper search & retrieval
 │   └── prior/                     FAISS RAG knowledge base
-│       ├── prior_store.py           Ingestion pipeline
-│       ├── prior_retrieve.py        Hybrid retriever
-│       └── wisdom_store.py          Cross-task wisdom persistence
-│
 ├── utils/                       Utilities
-│   ├── llm_client.py              OpenAI-compatible API wrapper
-│   ├── python_utils.py            Subprocess code execution
-│   ├── skill_loader.py            SKILL.md discovery & loading
-│   └── tool_schemas.py            Tool definitions
-│
 ├── prompts/                     14 prompt templates (7 agents)
 ├── instructions/                Query files
 ├── extensions/                  Skill plugins for CC / OpenClaw
@@ -372,11 +257,9 @@ PHY_Master/
 
 ## 💬 Community
 
-Join our WeChat group to discuss physics problem solving, share results, and get help:
-
 <div align="center">
 <img src="assets/wechat_qr.jpg" alt="WeChat Group QR Code" width="200"/>
-<p><i>Scan to join the WeChat group</i></p>
+<br><em>Scan to join the WeChat group</em>
 </div>
 
 ---
